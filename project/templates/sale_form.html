@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+
+{% block title %}Создание сделки{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Создание сделки</h2>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Товар</h5>
+        <p class="mb-1"><strong>ID:</strong> {{ product.id }}</p>
+        <p class="mb-1"><strong>Категория:</strong> {{ product.category.name }}</p>
+        <p class="mb-1"><strong>Производитель:</strong> {{ product.manufacturer }}</p>
+        <p class="mb-1"><strong>Модель:</strong> {{ product.model }}</p>
+        <p class="mb-1"><strong>Статус товара:</strong> {{ product.current_status }}</p>
+        <p class="mb-0"><strong>Складской номер:</strong> {{ product.warehouse_id or '-' }}</p>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('create_sale', product_id=product.id) }}">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Поиск покупателя по телефону</label>
+                    <input
+                        type="text"
+                        name="buyer_search"
+                        id="buyer_search"
+                        class="form-control"
+                        value="{{ sale.buyer_search }}"
+                        maxlength="17"
+                        placeholder="+7(900)-123-45-67"
+                    >
+                </div>
+                <div class="col-md-6 mb-3 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-outline-primary">Найти</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleBuyerForm()">Новый покупатель</button>
+                </div>
+            </div>
+        </form>
+
+        {% if no_buyer_found %}
+            <div class="alert alert-warning">
+                По указанному номеру покупатели не найдены.
+            </div>
+        {% endif %}
+
+        <form method="POST">
+            <input type="hidden" name="action" value="create_sale">
+            <input type="hidden" name="show_buyer_form" id="show_buyer_form" value="{{ '1' if show_buyer_form else '0' }}">
+
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">Покупатель *</label>
+                    <select name="buyer_id" class="form-select" required>
+                        <option value="">Выберите покупателя</option>
+                        {% for buyer in buyers %}
+                            <option value="{{ buyer.id }}" {% if sale.buyer_id|string == buyer.id|string %}selected{% endif %}>
+                                {{ buyer.full_name }} – {{ buyer.contact_info }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Сначала выполните поиск по номеру телефона или создайте нового покупателя.</div>
+                </div>
+
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Канал продажи</label>
+                    <input type="text" name="channel" class="form-control" value="{{ sale.channel }}">
+                </div>
+
+                <div class="col-12 mb-3">
+                    <label class="form-label">Комментарий к сделке</label>
+                    <textarea name="sale_comment" class="form-control" rows="4">{{ sale.sale_comment }}</textarea>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-success">Создать сделку</button>
+                <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-secondary">Назад к товару</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card {% if not show_buyer_form %}d-none{% endif %}" id="buyer-form-card">
+    <div class="card-body">
+        <h4 class="mb-3">Создание покупателя</h4>
+
+        <form method="POST">
+            <input type="hidden" name="action" value="create_buyer">
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">ФИО или никнейм *</label>
+                    <input type="text" name="buyer_full_name" class="form-control" value="{{ buyer_form.full_name }}" required>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Телефон / мессенджер *</label>
+                    <input
+                        type="text"
+                        name="buyer_contact_info"
+                        id="buyer_contact_info"
+                        class="form-control"
+                        value="{{ buyer_form.contact_info }}"
+                        maxlength="16"
+                        placeholder="+7(900)-123-45-67"
+                        required
+                    >
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Адрес</label>
+                    <input type="text" name="buyer_address" class="form-control" value="{{ buyer_form.address }}">
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Канал обращения</label>
+                    <input type="text" name="buyer_source_channel" class="form-control" value="{{ buyer_form.source_channel }}">
+                </div>
+
+                <div class="col-12 mb-3">
+                    <label class="form-label">Примечания</label>
+                    <textarea name="buyer_notes" class="form-control" rows="4">{{ buyer_form.notes }}</textarea>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">Создать покупателя</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="toggleBuyerForm()">Скрыть форму</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleBuyerForm() {
+    const card = document.getElementById('buyer-form-card');
+    const hiddenInput = document.getElementById('show_buyer_form');
+    card.classList.toggle('d-none');
+    hiddenInput.value = card.classList.contains('d-none') ? '0' : '1';
+}
+
+function formatPhone(value) {
+    let digits = value.replace(/\D/g, '');
+
+    if (!digits) {
+        return '';
+    }
+
+    if (digits.startsWith('8')) {
+        digits = '7' + digits.slice(1);
+    }
+
+    if (!digits.startsWith('7')) {
+        digits = '7' + digits;
+    }
+
+    digits = digits.slice(0, 11);
+
+    let result = '+7';
+
+    if (digits.length > 1) {
+        result += '(' + digits.slice(1, 4);
+    }
+
+    if (digits.length >= 4) {
+        result += ')';
+    }
+
+    if (digits.length > 4) {
+        result += '-' + digits.slice(4, 7);
+    }
+
+    if (digits.length > 7) {
+        result += '-' + digits.slice(7, 9);
+    }
+
+    if (digits.length > 9) {
+        result += '-' + digits.slice(9, 11);
+    }
+
+    return result;
+}
+
+function attachPhoneMask(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    input.addEventListener('input', function () {
+        this.value = formatPhone(this.value);
+    });
+
+    input.addEventListener('focus', function () {
+        if (!this.value) {
+            this.value = '+7';
+        }
+    });
+
+    input.addEventListener('keydown', function (event) {
+        const allowedKeys = [
+            'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Home', 'End'
+        ];
+
+        if (allowedKeys.includes(event.key)) {
+            return;
+        }
+
+        if (!/[0-9+]/.test(event.key)) {
+            event.preventDefault();
+        }
+    });
+
+    if (input.value) {
+        input.value = formatPhone(input.value);
+    }
+}
+
+attachPhoneMask('buyer_search');
+attachPhoneMask('buyer_contact_info');
+</script>
+{% endblock %}

@@ -164,24 +164,34 @@
     </div>
 
     <div class="d-flex gap-2 flex-wrap">
-        <button type="submit" class="btn btn-success">
-            {% if is_edit %}Сохранить изменения{% else %}Создать товар{% endif %}
-        </button>
+    <button type="submit" class="btn btn-success">
+        {% if is_edit %}Сохранить изменения{% else %}Создать товар{% endif %}
+    </button>
 
-        {% if is_edit %}
-            {% if product.current_status == 'Готов к продаже' %}
-                <a href="{{ url_for('create_advertisement', product_id=product.id) }}" class="btn btn-primary">
-                    Создать объявление
-                </a>
-            {% else %}
-                <button type="button" class="btn btn-primary" disabled>
-                    Создать объявление
-                </button>
-            {% endif %}
+    {% if is_edit %}
+        {% if product.current_status == 'Готов к продаже' %}
+            <a href="{{ url_for('create_advertisement', product_id=product.id) }}" class="btn btn-primary">
+                Создать объявление
+            </a>
+        {% else %}
+            <button type="button" class="btn btn-primary" disabled>
+                Создать объявление
+            </button>
         {% endif %}
 
-        <a href="{{ url_for('products') }}" class="btn btn-secondary">Назад</a>
-    </div>
+        {% if product.current_status in ['Готов к продаже', 'Опубликован'] %}
+            <a href="{{ url_for('create_sale', product_id=product.id) }}" class="btn btn-warning">
+                Создать сделку
+            </a>
+        {% else %}
+            <button type="button" class="btn btn-warning" disabled>
+                Создать сделку
+            </button>
+        {% endif %}
+    {% endif %}
+
+    <a href="{{ url_for('products') }}" class="btn btn-secondary">Назад</a>
+</div>
 </form>
 
 {% if is_edit and product.status_history %}

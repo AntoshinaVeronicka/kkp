@@ -12,7 +12,11 @@
         <div class="navbar-nav ms-auto">
             {% if session.get('role') %}
                 <a class="nav-link" href="{{ url_for('products') }}">Товары</a>
+                <a class="nav-link" href="{{ url_for('reports') }}">Отчеты</a>
                 <a class="nav-link" href="{{ url_for('advertisements') }}">Объявления</a>
+                <a class="nav-link" href="{{ url_for('buyers') }}">Покупатели</a>
+                <a class="nav-link" href="{{ url_for('sales') }}">Сделки</a>
+                <a class="nav-link" href="{{ url_for('finances') }}">Финансы</a>
                 <a class="nav-link" href="{{ url_for('logout') }}">Выйти</a>
             {% endif %}
         </div>

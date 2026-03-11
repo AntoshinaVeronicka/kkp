@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Сделки{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Сделки</h2>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('sales') }}">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Статус сделки</label>
+                    <select name="state" class="form-select">
+                        <option value="">Все статусы</option>
+                        {% for item in states %}
+                            <option value="{{ item }}" {% if state == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-8 mb-3 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-success">Применить</button>
+                    <a href="{{ url_for('sales') }}" class="btn btn-outline-secondary">Сбросить</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if sales %}
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Товар</th>
+                    <th>Покупатель</th>
+                    <th>Статус</th>
+                    <th>Дата создания сделки</th>
+                    <th>Дата продажи</th>
+                    <th>Канал</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sale in sales %}
+                    <tr>
+                        <td>{{ sale.id }}</td>
+                        <td>{{ sale.product.manufacturer }} {{ sale.product.model }}</td>
+                        <td>{{ sale.buyer.full_name }}</td>
+                        <td>{{ sale.sale_state }}</td>
+                        <td>{{ sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                        <td>{% if sale.sale_date %}{{ sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') }}{% else %}-{% endif %}</td>
+                        <td>{{ sale.channel or '-' }}</td>
+                        <td>
+                            <a href="{{ url_for('sale_detail', sale_id=sale.id) }}" class="btn btn-sm btn-warning">Открыть</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="alert alert-info">Сделок пока нет.</div>
+{% endif %}
+{% endblock %}
