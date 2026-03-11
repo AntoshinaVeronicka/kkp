@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+
+{% block title %}
+    {% if is_edit %}Редактирование товара{% else %}Создание товара{% endif %}
+{% endblock %}
+
+{% block content %}
+<style>
+    input.no-spin::-webkit-outer-spin-button,
+    input.no-spin::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    input.no-spin[type=number] {
+        -moz-appearance: textfield;
+    }
+</style>
+
+<h2 class="mb-4">
+    {% if is_edit %}
+        Редактирование карточки товара
+    {% else %}
+        Создание карточки товара
+    {% endif %}
+</h2>
+
+<form method="POST" enctype="multipart/form-data">
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Категория *</label>
+            <select name="category_id" class="form-select" required>
+                <option value="">Выберите категорию</option>
+                {% for category in categories %}
+                    <option value="{{ category.id }}"
+                        {% if product.category_id|string == category.id|string %}selected{% endif %}>
+                        {{ category.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Складской номер *</label>
+            <input
+                type="text"
+                name="warehouse_id"
+                class="form-control"
+                maxlength="3"
+                pattern="\d{3}"
+                inputmode="numeric"
+                value="{{ product.warehouse_id or '' }}"
+                {% if warehouse_locked %}readonly{% endif %}
+                required
+            >
+            <div class="form-text">
+                Номер должен состоять ровно из 3 цифр.
+                {% if not is_edit %}
+                    {% if suggested_slot %}
+                        Автоматически предложен свободный слот: <strong>{{ suggested_slot }}</strong>.
+                    {% else %}
+                        Свободных слотов нет.
+                    {% endif %}
+                {% endif %}
+                {% if warehouse_locked %}
+                    Для товаров со статусом «Продан» или «Снят с продажи» складской номер не редактируется.
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Производитель *</label>
+            <input
+                type="text"
+                name="manufacturer"
+                class="form-control"
+                value="{{ product.manufacturer or '' }}"
+                required
+            >
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Модель *</label>
+            <input
+                type="text"
+                name="model"
+                class="form-control"
+                value="{{ product.model or '' }}"
+                required
+            >
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <label class="form-label">Закупочная цена</label>
+            <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                name="purchase_price"
+                class="form-control no-spin"
+                value="{{ product.purchase_price or '' }}"
+            >
+            <div class="form-text">Значение должно быть больше 0.</div>
+        </div>
+
+        <div class="col-md-2 mb-3">
+            <label class="form-label">Оценка (1-5) *</label>
+            <input
+                type="number"
+                min="1"
+                max="5"
+                name="condition_rate"
+                class="form-control text-center"
+                value="{{ product.condition_rate or '' }}"
+                required
+            >
+        </div>
+
+        <div class="col-md-7 mb-3">
+            <label class="form-label">Текущий статус *</label>
+            <select name="current_status" class="form-select" required>
+                <option value="">Выберите статус</option>
+                {% for status in statuses %}
+                    <option value="{{ status }}"
+                        {% if product.current_status == status %}selected{% endif %}>
+                        {{ status }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Фотография товара</label>
+            <input
+                type="file"
+                name="image_file"
+                class="form-control"
+                accept=".jpg,.jpeg,.png,.gif,.webp"
+            >
+        </div>
+
+        {% if product.image_path %}
+        <div class="col-12 mb-3">
+            <label class="form-label">Текущая фотография</label>
+            <div>
+                <img
+                    src="{{ url_for('static', filename=product.image_path) }}"
+                    alt="Фотография товара"
+                    style="max-width: 300px; max-height: 300px; object-fit: contain; border: 1px solid #ddd; padding: 8px;"
+                >
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="col-12 mb-3">
+            <label class="form-label">Технические характеристики</label>
+            <textarea name="specifications" class="form-control" rows="4">{{ product.specifications or '' }}</textarea>
+        </div>
+
+        <div class="col-12 mb-3">
+            <label class="form-label">Комментарии</label>
+            <textarea name="comments" class="form-control" rows="4">{{ product.comments or '' }}</textarea>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+        <button type="submit" class="btn btn-success">
+            {% if is_edit %}Сохранить изменения{% else %}Создать товар{% endif %}
+        </button>
+
+        {% if is_edit %}
+            {% if product.current_status == 'Готов к продаже' %}
+                <a href="{{ url_for('create_advertisement', product_id=product.id) }}" class="btn btn-primary">
+                    Создать объявление
+                </a>
+            {% else %}
+                <button type="button" class="btn btn-primary" disabled>
+                    Создать объявление
+                </button>
+            {% endif %}
+        {% endif %}
+
+        <a href="{{ url_for('products') }}" class="btn btn-secondary">Назад</a>
+    </div>
+</form>
+
+{% if is_edit and product.status_history %}
+    <hr class="my-4">
+    <h4>История статусов</h4>
+
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Статус</th>
+                    <th>Дата изменения</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in product.status_history|sort(attribute='changed_at', reverse=True) %}
+                    <tr>
+                        <td>{{ record.status_name }}</td>
+                        <td>{{ record.changed_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

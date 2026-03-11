@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}Объявления{% endblock %}
+
+{% block content %}
+<style>
+    input.no-spin::-webkit-outer-spin-button,
+    input.no-spin::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    input.no-spin[type=number] {
+        -moz-appearance: textfield;
+    }
+
+    .product-thumb {
+        width: 70px;
+        height: 70px;
+        object-fit: contain;
+        border: 1px solid #ddd;
+        padding: 4px;
+        background: #fff;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Объявления</h2>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('advertisements') }}">
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Площадка</label>
+                    <select name="platform" class="form-select">
+                        <option value="">Все площадки</option>
+                        {% for platform in platforms %}
+                            <option value="{{ platform }}"
+                                {% if filters.platform == platform %}selected{% endif %}>
+                                {{ platform }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Статус объявления</label>
+                    <select name="ad_status" class="form-select">
+                        <option value="">Все статусы</option>
+                        {% for status in ad_statuses %}
+                            <option value="{{ status }}"
+                                {% if filters.ad_status == status %}selected{% endif %}>
+                                {{ status }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Категория товара</label>
+                    <select name="category_id" class="form-select">
+                        <option value="">Все категории</option>
+                        {% for category in categories %}
+                            <option value="{{ category.id }}"
+                                {% if filters.category_id|string == category.id|string %}selected{% endif %}>
+                                {{ category.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Производитель</label>
+                    <select name="manufacturer" class="form-select">
+                        <option value="">Все производители</option>
+                        {% for item in manufacturers %}
+                            <option value="{{ item }}"
+                                {% if filters.manufacturer == item %}selected{% endif %}>
+                                {{ item }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">Цена от</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        name="price_from"
+                        class="form-control no-spin"
+                        value="{{ filters.price_from }}"
+                    >
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">Цена до</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        name="price_to"
+                        class="form-control no-spin"
+                        value="{{ filters.price_to }}"
+                    >
+                </div>
+
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Сортировка</label>
+                    <select name="sort_by" class="form-select">
+                        <option value="created_desc" {% if filters.sort_by == 'created_desc' %}selected{% endif %}>Сначала новые</option>
+                        <option value="created_asc" {% if filters.sort_by == 'created_asc' %}selected{% endif %}>Сначала старые</option>
+                        <option value="id_desc" {% if filters.sort_by == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
+                        <option value="id_asc" {% if filters.sort_by == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
+                        <option value="price_asc" {% if filters.sort_by == 'price_asc' %}selected{% endif %}>Цена по возрастанию</option>
+                        <option value="price_desc" {% if filters.sort_by == 'price_desc' %}selected{% endif %}>Цена по убыванию</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4 mb-3 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-success">Применить</button>
+                    <a href="{{ url_for('advertisements') }}" class="btn btn-outline-secondary">Сбросить</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if advertisements %}
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Фото</th>
+                    <th>ID товара</th>
+                    <th>Товар</th>
+                    <th>Площадка</th>
+                    <th>Цена</th>
+                    <th>Статус объявления</th>
+                    <th>Дата создания</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ad in advertisements %}
+                    <tr>
+                        <td>{{ ad.id }}</td>
+                        <td>
+                            {% if ad.product.image_path %}
+                                <img
+                                    src="{{ url_for('static', filename=ad.product.image_path) }}"
+                                    alt="Фото товара"
+                                    class="product-thumb"
+                                >
+                            {% else %}
+                                <span class="text-muted">Нет фото</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ ad.product_id }}</td>
+                        <td>{{ ad.product.manufacturer }} {{ ad.product.model }}</td>
+                        <td>{{ ad.platform }}</td>
+                        <td>{{ ad.ad_price }}</td>
+                        <td>{{ ad.ad_status }}</td>
+                        <td>{{ ad.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                        <td>
+                            <a href="{{ url_for('edit_product', product_id=ad.product.id) }}" class="btn btn-sm btn-warning">
+                                Карточка товара
+                            </a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="alert alert-info">По заданным условиям объявления не найдены.</div>
+{% endif %}
+{% endblock %}
