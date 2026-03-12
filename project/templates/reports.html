@@ -9,50 +9,64 @@
     <div class="card-body">
         <form method="GET" action="{{ url_for('reports') }}">
             <div class="row">
-                <div class="col-md-2 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">Дата от</label>
                     <input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}">
                 </div>
 
-                <div class="col-md-2 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">Дата до</label>
                     <input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}">
                 </div>
+            </div>
 
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Статус товара</label>
-                    <select name="product_status" class="form-select">
-                        <option value="">Все статусы</option>
-                        {% for status in statuses %}
-                            <option value="{{ status }}" {% if filters.product_status == status %}selected{% endif %}>
-                                {{ status }}
-                            </option>
-                        {% endfor %}
-                    </select>
+            <h5 class="mt-3">Выбор аналитических блоков</h5>
+            <div class="row">
+                <div class="col-md-3 form-check">
+                    <input class="form-check-input" type="checkbox" name="show_products" value="1" {% if filters.show_products %}checked{% endif %}>
+                    <label class="form-check-label">Товары</label>
                 </div>
+                <div class="col-md-3 form-check">
+                    <input class="form-check-input" type="checkbox" name="show_sold_products" value="1" {% if filters.show_sold_products %}checked{% endif %}>
+                    <label class="form-check-label">Проданные товары</label>
+                </div>
+                <div class="col-md-3 form-check">
+                    <input class="form-check-input" type="checkbox" name="show_sales" value="1" {% if filters.show_sales %}checked{% endif %}>
+                    <label class="form-check-label">Сделки</label>
+                </div>
+                <div class="col-md-3 form-check">
+                    <input class="form-check-input" type="checkbox" name="show_finances" value="1" {% if filters.show_finances %}checked{% endif %}>
+                    <label class="form-check-label">Финансы</label>
+                </div>
+                <div class="col-md-3 form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="show_expense_articles" value="1" {% if filters.show_expense_articles %}checked{% endif %}>
+                    <label class="form-check-label">Расходы по статьям</label>
+                </div>
+                <div class="col-md-3 form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="show_sales_channels" value="1" {% if filters.show_sales_channels %}checked{% endif %}>
+                    <label class="form-check-label">Сделки по каналам</label>
+                </div>
+                <div class="col-md-3 form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="show_profit" value="1" {% if filters.show_profit %}checked{% endif %}>
+                    <label class="form-check-label">Прибыль по товарам</label>
+                </div>
+                <div class="col-md-3 form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="show_category_profit" value="1" {% if filters.show_category_profit %}checked{% endif %}>
+                    <label class="form-check-label">Прибыль по категориям</label>
+                </div>
+            </div>
 
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Категория</label>
-                    <select name="category_id" class="form-select">
-                        <option value="">Все категории</option>
-                        {% for category in categories %}
-                            <option value="{{ category.id }}" {% if filters.category_id|string == category.id|string %}selected{% endif %}>
-                                {{ category.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="col-md-2 mb-3 d-flex align-items-end gap-2">
-                    <button type="submit" class="btn btn-primary">Применить</button>
-                    <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary">Сбросить</a>
-                </div>
+            <div class="mt-4 d-flex gap-2">
+                <button type="submit" class="btn btn-primary">Сформировать</button>
+                <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary">Сбросить</a>
+                <button type="submit" formaction="{{ url_for('export_reports_xlsx') }}" class="btn btn-success">Скачать XLSX</button>
+                <button type="submit" formaction="{{ url_for('export_reports_pdf') }}" class="btn btn-danger">Скачать PDF</button>
             </div>
         </form>
     </div>
 </div>
 
-<h4 class="mb-3">Сводные показатели</h4>
+<h4 class="mb-3">Аналитическая сводка</h4>
 <div class="row mb-4">
     <div class="col-md-3 mb-3">
         <div class="card"><div class="card-body"><h6>Количество товаров</h6><div class="fs-4">{{ summary.products_count }}</div></div></div>
@@ -68,15 +82,13 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card"><div class="card-body"><h6>Доходы</h6><div class="fs-4">{{ '%.2f'|format(summary.income_total) }}</div></div></div>
+        <div class="card"><div class="card-body"><h6>Доходы</h6><div class="fs-4">{{ '%.2f'|format(summary.income_total) }} ₽</div></div></div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card"><div class="card-body"><h6>Расходы</h6><div class="fs-4">{{ '%.2f'|format(summary.expense_total) }}</div></div></div>
+        <div class="card"><div class="card-body"><h6>Расходы</h6><div class="fs-4">{{ '%.2f'|format(summary.expense_total) }} ₽</div></div></div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card border-{% if summary.profit_total >= 0 %}success{% else %}danger{% endif %}">
-            <div class="card-body"><h6>Финансовый результат</h6><div class="fs-4">{{ '%.2f'|format(summary.profit_total) }}</div></div>
-        </div>
+        <div class="card"><div class="card-body"><h6>Финансовый результат</h6><div class="fs-4">{{ '%.2f'|format(summary.profit_total) }} ₽</div></div></div>
     </div>
     <div class="col-md-3 mb-3">
         <div class="card"><div class="card-body"><h6>Товаров в ремонте</h6><div class="fs-4">{{ summary.repair_count }}</div></div></div>
@@ -90,258 +102,437 @@
     </div>
 </div>
 
+{% if filters.show_products %}
 <h4 class="mb-3">Товары</h4>
 <form method="GET" action="{{ url_for('reports') }}" class="mb-2">
     <input type="hidden" name="date_from" value="{{ filters.date_from }}">
     <input type="hidden" name="date_to" value="{{ filters.date_to }}">
-    <input type="hidden" name="product_status" value="{{ filters.product_status }}">
-    <input type="hidden" name="category_id" value="{{ filters.category_id }}">
-    <div class="d-flex gap-2">
-        <select name="products_sort" class="form-select w-auto">
-            <option value="id_desc" {% if filters.products_sort == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
-            <option value="id_asc" {% if filters.products_sort == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
-            <option value="price_asc" {% if filters.products_sort == 'price_asc' %}selected{% endif %}>Цена по возрастанию</option>
-            <option value="price_desc" {% if filters.products_sort == 'price_desc' %}selected{% endif %}>Цена по убыванию</option>
+    <input type="hidden" name="show_products" value="1">
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
-        </select>
-        <button type="submit" class="btn btn-outline-primary">Сортировать</button>
+    <div class="row g-2">
+        <div class="col-md-3">
+            <select name="products_status" class="form-select">
+                <option value="">Все статусы</option>
+                {% for status in statuses %}
+                    <option value="{{ status }}" {% if filters.products_status == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="products_category_id" class="form-select">
+                <option value="">Все категории</option>
+                {% for category in categories %}
+                    <option value="{{ category.id }}" {% if filters.products_category_id|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="products_sort" class="form-select">
+                <option value="id_desc" {% if filters.products_sort == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
+                <option value="id_asc" {% if filters.products_sort == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
+                <option value="price_asc" {% if filters.products_sort == 'price_asc' %}selected{% endif %}>Цена по возрастанию</option>
+                <option value="price_desc" {% if filters.products_sort == 'price_desc' %}selected{% endif %}>Цена по убыванию</option>
+                <option value="status_asc" {% if filters.products_sort == 'status_asc' %}selected{% endif %}>Статус А-Я</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+        </div>
     </div>
 </form>
 
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>ID</th>
-                <th>Категория</th>
-                <th>Производитель</th>
-                <th>Модель</th>
-                <th>Статус</th>
-                <th>Закупочная цена</th>
-                <th>Объявления</th>
-                <th>Сделка</th>
-            </tr>
+            <tr><th>ID</th><th>Категория</th><th>Производитель</th><th>Модель</th><th>Статус</th><th>Цена</th></tr>
         </thead>
         <tbody>
-            {% for product in products %}
-                <tr>
-                    <td>{{ product.id }}</td>
-                    <td>{{ product.category.name }}</td>
-                    <td>{{ product.manufacturer }}</td>
-                    <td>{{ product.model }}</td>
-                    <td>{{ product.current_status }}</td>
-                    <td>{% if product.purchase_price is not none %}{{ product.purchase_price }}{% else %}-{% endif %}</td>
-                    <td>{{ product.advertisements|length }}</td>
-                    <td>{% if product.sale %}{{ product.sale.sale_state }}{% else %}-{% endif %}</td>
-                </tr>
-            {% endfor %}
+        {% for product in products %}
+            <tr>
+                <td>{{ product.id }}</td>
+                <td>{{ product.category.name }}</td>
+                <td>{{ product.manufacturer }}</td>
+                <td>{{ product.model }}</td>
+                <td>{{ product.current_status }}</td>
+                <td>{% if product.purchase_price is not none %}{{ product.purchase_price }} ₽{% else %}-{% endif %}</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
-<h4 class="mb-3">Только проданные товары</h4>
+{% if filters.show_sold_products %}
+<h4 class="mb-3">Проданные товары</h4>
 <form method="GET" action="{{ url_for('reports') }}" class="mb-2">
     <input type="hidden" name="date_from" value="{{ filters.date_from }}">
     <input type="hidden" name="date_to" value="{{ filters.date_to }}">
-    <input type="hidden" name="product_status" value="{{ filters.product_status }}">
-    <input type="hidden" name="category_id" value="{{ filters.category_id }}">
-    <div class="d-flex gap-2">
-        <select name="sold_sort" class="form-select w-auto">
-            <option value="sale_date_desc" {% if filters.sold_sort == 'sale_date_desc' %}selected{% endif %}>Дата продажи по убыванию</option>
-            <option value="sale_date_asc" {% if filters.sold_sort == 'sale_date_asc' %}selected{% endif %}>Дата продажи по возрастанию</option>
-            <option value="id_desc" {% if filters.sold_sort == 'id_desc' %}selected{% endif %}>ID товара по убыванию</option>
-            <option value="id_asc" {% if filters.sold_sort == 'id_asc' %}selected{% endif %}>ID товара по возрастанию</option>
-        </select>
-        <button type="submit" class="btn btn-outline-primary">Сортировать</button>
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    <input type="hidden" name="show_sold_products" value="1">
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="row g-2">
+        <div class="col-md-4">
+            <select name="sold_category_id" class="form-select">
+                <option value="">Все категории</option>
+                {% for category in categories %}
+                    <option value="{{ category.id }}" {% if filters.sold_category_id|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4">
+            <select name="sold_sort" class="form-select">
+                <option value="sale_date_desc" {% if filters.sold_sort == 'sale_date_desc' %}selected{% endif %}>Дата продажи по убыванию</option>
+                <option value="sale_date_asc" {% if filters.sold_sort == 'sale_date_asc' %}selected{% endif %}>Дата продажи по возрастанию</option>
+                <option value="id_desc" {% if filters.sold_sort == 'id_desc' %}selected{% endif %}>ID товара по убыванию</option>
+                <option value="id_asc" {% if filters.sold_sort == 'id_asc' %}selected{% endif %}>ID товара по возрастанию</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+        </div>
     </div>
 </form>
 
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>ID товара</th>
-                <th>Товар</th>
-                <th>Покупатель</th>
-                <th>Дата начала сделки</th>
-                <th>Дата продажи</th>
-            </tr>
+            <tr><th>ID товара</th><th>Товар</th><th>Покупатель</th><th>Дата продажи</th></tr>
         </thead>
         <tbody>
-            {% for sale in sold_products %}
-                <tr>
-                    <td>{{ sale.product.id }}</td>
-                    <td>{{ sale.product.manufacturer }} {{ sale.product.model }}</td>
-                    <td>{{ sale.buyer.full_name }}</td>
-                    <td>{{ sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
-                    <td>{% if sale.sale_date %}{{ sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') }}{% else %}-{% endif %}</td>
-                </tr>
-            {% endfor %}
+        {% for sale in sold_products %}
+            <tr>
+                <td>{{ sale.product.id }}</td>
+                <td>{{ sale.product.manufacturer }} {{ sale.product.model }}</td>
+                <td>{{ sale.buyer.full_name }}</td>
+                <td>{{ sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') if sale.sale_date else '-' }}</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
+{% if filters.show_sales %}
 <h4 class="mb-3">Сделки</h4>
 <form method="GET" action="{{ url_for('reports') }}" class="mb-2">
     <input type="hidden" name="date_from" value="{{ filters.date_from }}">
     <input type="hidden" name="date_to" value="{{ filters.date_to }}">
-    <input type="hidden" name="product_status" value="{{ filters.product_status }}">
-    <input type="hidden" name="category_id" value="{{ filters.category_id }}">
-    <div class="d-flex gap-2">
-        <select name="sales_sort" class="form-select w-auto">
-            <option value="date_desc" {% if filters.sales_sort == 'date_desc' %}selected{% endif %}>Дата начала по убыванию</option>
-            <option value="date_asc" {% if filters.sales_sort == 'date_asc' %}selected{% endif %}>Дата начала по возрастанию</option>
-            <option value="id_desc" {% if filters.sales_sort == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
-            <option value="id_asc" {% if filters.sales_sort == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
-        </select>
-        <button type="submit" class="btn btn-outline-primary">Сортировать</button>
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    <input type="hidden" name="show_sales" value="1">
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="row g-2">
+        <div class="col-md-3">
+            <select name="sales_state" class="form-select">
+                <option value="">Все статусы сделок</option>
+                {% for state in sale_states %}
+                    <option value="{{ state }}" {% if filters.sales_state == state %}selected{% endif %}>{{ state }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="sales_channel" class="form-select">
+                <option value="">Все каналы</option>
+                {% for channel in sale_channels %}
+                    <option value="{{ channel }}" {% if filters.sales_channel == channel %}selected{% endif %}>{{ channel }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="sales_sort" class="form-select">
+                <option value="date_desc" {% if filters.sales_sort == 'date_desc' %}selected{% endif %}>Дата начала по убыванию</option>
+                <option value="date_asc" {% if filters.sales_sort == 'date_asc' %}selected{% endif %}>Дата начала по возрастанию</option>
+                <option value="id_desc" {% if filters.sales_sort == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
+                <option value="id_asc" {% if filters.sales_sort == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+        </div>
     </div>
 </form>
 
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>ID</th>
-                <th>Товар</th>
-                <th>Покупатель</th>
-                <th>Статус</th>
-                <th>Дата начала</th>
-                <th>Дата завершения</th>
-                <th>Канал</th>
-            </tr>
+            <tr><th>ID</th><th>Товар</th><th>Покупатель</th><th>Статус</th><th>Дата начала</th><th>Канал</th></tr>
         </thead>
         <tbody>
-            {% for sale in sales %}
-                <tr>
-                    <td>{{ sale.id }}</td>
-                    <td>{{ sale.product.manufacturer }} {{ sale.product.model }}</td>
-                    <td>{{ sale.buyer.full_name }}</td>
-                    <td>{{ sale.sale_state }}</td>
-                    <td>{{ sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
-                    <td>{% if sale.sale_date %}{{ sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') }}{% else %}-{% endif %}</td>
-                    <td>{{ sale.channel or '-' }}</td>
-                </tr>
-            {% endfor %}
+        {% for sale in sales %}
+            <tr>
+                <td>{{ sale.id }}</td>
+                <td>{{ sale.product.manufacturer }} {{ sale.product.model }}</td>
+                <td>{{ sale.buyer.full_name }}</td>
+                <td>{{ sale.sale_state }}</td>
+                <td>{{ sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                <td>{{ sale.channel or '-' }}</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
+{% if filters.show_finances %}
 <h4 class="mb-3">Финансовые операции</h4>
 <form method="GET" action="{{ url_for('reports') }}" class="mb-2">
     <input type="hidden" name="date_from" value="{{ filters.date_from }}">
     <input type="hidden" name="date_to" value="{{ filters.date_to }}">
-    <input type="hidden" name="product_status" value="{{ filters.product_status }}">
-    <input type="hidden" name="category_id" value="{{ filters.category_id }}">
-    <div class="d-flex gap-2">
-        <select name="finances_sort" class="form-select w-auto">
-            <option value="date_desc" {% if filters.finances_sort == 'date_desc' %}selected{% endif %}>Дата по убыванию</option>
-            <option value="date_asc" {% if filters.finances_sort == 'date_asc' %}selected{% endif %}>Дата по возрастанию</option>
-            <option value="amount_desc" {% if filters.finances_sort == 'amount_desc' %}selected{% endif %}>Сумма по убыванию</option>
-            <option value="amount_asc" {% if filters.finances_sort == 'amount_asc' %}selected{% endif %}>Сумма по возрастанию</option>
-            <option value="id_desc" {% if filters.finances_sort == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
-            <option value="id_asc" {% if filters.finances_sort == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
-        </select>
-        <button type="submit" class="btn btn-outline-primary">Сортировать</button>
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    <input type="hidden" name="show_finances" value="1">
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="row g-2">
+        <div class="col-md-3">
+            <select name="finances_type" class="form-select">
+                <option value="">Все типы</option>
+                <option value="IN" {% if filters.finances_type == 'IN' %}selected{% endif %}>IN</option>
+                <option value="OUT" {% if filters.finances_type == 'OUT' %}selected{% endif %}>OUT</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="finances_article_id" class="form-select">
+                <option value="">Все статьи</option>
+                {% for article in articles %}
+                    <option value="{{ article.id }}" {% if filters.finances_article_id|string == article.id|string %}selected{% endif %}>{{ article.article }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="finances_product_id" class="form-select">
+                <option value="">Все товары</option>
+                {% for product in finance_products %}
+                    <option value="{{ product.id }}" {% if filters.finances_product_id|string == product.id|string %}selected{% endif %}>
+                        {{ product.id }} – {{ product.manufacturer }} {{ product.model }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="finances_sort" class="form-select">
+                <option value="date_desc" {% if filters.finances_sort == 'date_desc' %}selected{% endif %}>Дата по убыванию</option>
+                <option value="date_asc" {% if filters.finances_sort == 'date_asc' %}selected{% endif %}>Дата по возрастанию</option>
+                <option value="amount_desc" {% if filters.finances_sort == 'amount_desc' %}selected{% endif %}>Сумма по убыванию</option>
+                <option value="amount_asc" {% if filters.finances_sort == 'amount_asc' %}selected{% endif %}>Сумма по возрастанию</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <button type="submit" class="btn btn-outline-primary">ОК</button>
+        </div>
     </div>
 </form>
 
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>ID</th>
-                <th>Дата</th>
-                <th>Тип</th>
-                <th>Статья</th>
-                <th>Сумма</th>
-                <th>Товар</th>
-                <th>Сделка</th>
-                <th>Комментарий</th>
-            </tr>
+            <tr><th>ID</th><th>Дата</th><th>Тип</th><th>Статья</th><th>Сумма</th><th>Комментарий</th></tr>
         </thead>
         <tbody>
-            {% for item in finances %}
-                <tr>
-                    <td>{{ item.id }}</td>
-                    <td>{{ item.op_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
-                    <td>{{ item.fin_type.type }}</td>
-                    <td>{{ item.article_ref.article }}</td>
-                    <td>{{ item.amount }}</td>
-                    <td>{% if item.product %}{{ item.product.id }} – {{ item.product.manufacturer }} {{ item.product.model }}{% else %}-{% endif %}</td>
-                    <td>{% if item.sale %}{{ item.sale.id }}{% else %}-{% endif %}</td>
-                    <td>{{ item.comment or '-' }}</td>
-                </tr>
-            {% endfor %}
+        {% for item in finances %}
+            <tr>
+                <td>{{ item.id }}</td>
+                <td>{{ item.op_date.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                <td>{{ item.fin_type.type }}</td>
+                <td>{{ item.article_ref.article }}</td>
+                <td>{{ item.amount }} ₽</td>
+                <td>{{ item.comment or '-' }}</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
+{% if filters.show_expense_articles %}
 <h4 class="mb-3">Расходы по статьям</h4>
+<form method="GET" action="{{ url_for('reports') }}" class="mb-2">
+    <input type="hidden" name="date_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="date_to" value="{{ filters.date_to }}">
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    <input type="hidden" name="show_expense_articles" value="1">
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="d-flex gap-2">
+        <select name="expense_sort" class="form-select w-auto">
+            <option value="amount_desc" {% if filters.expense_sort == 'amount_desc' %}selected{% endif %}>Сумма по убыванию</option>
+            <option value="amount_asc" {% if filters.expense_sort == 'amount_asc' %}selected{% endif %}>Сумма по возрастанию</option>
+            <option value="article_asc" {% if filters.expense_sort == 'article_asc' %}selected{% endif %}>Статья А-Я</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+    </div>
+</form>
+
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>Статья расхода</th>
-                <th>Сумма</th>
-            </tr>
+            <tr><th>Статья</th><th>Сумма</th></tr>
         </thead>
         <tbody>
-            {% for row in expense_by_article_rows %}
-                <tr>
-                    <td>{{ row.article }}</td>
-                    <td>{{ '%.2f'|format(row.amount) }}</td>
-                </tr>
-            {% endfor %}
+        {% for row in expense_by_article_rows %}
+            <tr>
+                <td>{{ row.article }}</td>
+                <td>{{ '%.2f'|format(row.amount) }} ₽</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
-<h4 class="mb-3">Количество сделок по каналам</h4>
+{% if filters.show_sales_channels %}
+<h4 class="mb-3">Сделки по каналам</h4>
+<form method="GET" action="{{ url_for('reports') }}" class="mb-2">
+    <input type="hidden" name="date_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="date_to" value="{{ filters.date_to }}">
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    <input type="hidden" name="show_sales_channels" value="1">
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="d-flex gap-2">
+        <select name="channel_sort" class="form-select w-auto">
+            <option value="count_desc" {% if filters.channel_sort == 'count_desc' %}selected{% endif %}>Количество по убыванию</option>
+            <option value="channel_asc" {% if filters.channel_sort == 'channel_asc' %}selected{% endif %}>Канал А-Я</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+    </div>
+</form>
+
 <div class="table-responsive mb-5">
-    <table class="table table-bordered table-striped align-middle">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>Канал</th>
-                <th>Количество сделок</th>
-            </tr>
+            <tr><th>Канал</th><th>Количество</th></tr>
         </thead>
         <tbody>
-            {% for row in sales_by_channel_rows %}
-                <tr>
-                    <td>{{ row.channel }}</td>
-                    <td>{{ row.count }}</td>
-                </tr>
-            {% endfor %}
+        {% for row in sales_by_channel_rows %}
+            <tr>
+                <td>{{ row.channel }}</td>
+                <td>{{ row.count }}</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
 
+{% if filters.show_profit %}
 <h4 class="mb-3">Прибыль по товарам</h4>
-<div class="table-responsive">
-    <table class="table table-bordered table-striped align-middle">
+<form method="GET" action="{{ url_for('reports') }}" class="mb-2">
+    <input type="hidden" name="date_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="date_to" value="{{ filters.date_to }}">
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    <input type="hidden" name="show_profit" value="1">
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="d-flex gap-2">
+        <select name="profit_sort" class="form-select w-auto">
+            <option value="profit_desc" {% if filters.profit_sort == 'profit_desc' %}selected{% endif %}>Прибыль по убыванию</option>
+            <option value="profit_asc" {% if filters.profit_sort == 'profit_asc' %}selected{% endif %}>Прибыль по возрастанию</option>
+            <option value="income_desc" {% if filters.profit_sort == 'income_desc' %}selected{% endif %}>Доходы по убыванию</option>
+            <option value="expense_desc" {% if filters.profit_sort == 'expense_desc' %}selected{% endif %}>Расходы по убыванию</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+    </div>
+</form>
+
+<div class="table-responsive mb-5">
+    <table class="table table-bordered table-striped">
         <thead>
-            <tr>
-                <th>ID товара</th>
-                <th>Товар</th>
-                <th>Расходы</th>
-                <th>Доходы</th>
-                <th>Результат</th>
-            </tr>
+            <tr><th>ID товара</th><th>Товар</th><th>Расходы</th><th>Доходы</th><th>Результат</th></tr>
         </thead>
         <tbody>
-            {% for row in product_profit_rows %}
-                <tr>
-                    <td>{{ row.product.id }}</td>
-                    <td>{{ row.product.manufacturer }} {{ row.product.model }}</td>
-                    <td>{{ '%.2f'|format(row.expense) }}</td>
-                    <td>{{ '%.2f'|format(row.income) }}</td>
-                    <td class="{% if row.profit >= 0 %}text-success{% else %}text-danger{% endif %}">
-                        {{ '%.2f'|format(row.profit) }}
-                    </td>
-                </tr>
-            {% endfor %}
+        {% for row in product_profit_rows %}
+            <tr>
+                <td>{{ row.product.id }}</td>
+                <td>{{ row.product.manufacturer }} {{ row.product.model }}</td>
+                <td>{{ '%.2f'|format(row.expense) }} ₽</td>
+                <td>{{ '%.2f'|format(row.income) }} ₽</td>
+                <td>{{ '%.2f'|format(row.profit) }} ₽</td>
+            </tr>
+        {% endfor %}
         </tbody>
     </table>
 </div>
+{% endif %}
+
+{% if filters.show_category_profit %}
+<h4 class="mb-3">Прибыль по категориям товара</h4>
+<form method="GET" action="{{ url_for('reports') }}" class="mb-2">
+    <input type="hidden" name="date_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="date_to" value="{{ filters.date_to }}">
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    <input type="hidden" name="show_category_profit" value="1">
+
+    <div class="d-flex gap-2">
+        <select name="category_profit_sort" class="form-select w-auto">
+            <option value="profit_desc" {% if filters.category_profit_sort == 'profit_desc' %}selected{% endif %}>Прибыль по убыванию</option>
+            <option value="profit_asc" {% if filters.category_profit_sort == 'profit_asc' %}selected{% endif %}>Прибыль по возрастанию</option>
+            <option value="income_desc" {% if filters.category_profit_sort == 'income_desc' %}selected{% endif %}>Доходы по убыванию</option>
+            <option value="expense_desc" {% if filters.category_profit_sort == 'expense_desc' %}selected{% endif %}>Расходы по убыванию</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+    </div>
+</form>
+
+<div class="table-responsive mb-5">
+    <table class="table table-bordered table-striped">
+        <thead>
+            <tr><th>Категория</th><th>Расходы</th><th>Доходы</th><th>Результат</th></tr>
+        </thead>
+        <tbody>
+        {% for row in category_profit_rows %}
+            <tr>
+                <td>{{ row.category }}</td>
+                <td>{{ '%.2f'|format(row.expense) }} ₽</td>
+                <td>{{ '%.2f'|format(row.income) }} ₽</td>
+                <td>{{ '%.2f'|format(row.profit) }} ₽</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 {% endblock %}

@@ -1,3 +1,4 @@
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
@@ -7,6 +8,14 @@ import uuid
 from flask import Flask, render_template, request, redirect, url_for, session, flash, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
+
+from io import BytesIO
+from flask import send_file
+from openpyxl import Workbook
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///store.db'
@@ -186,7 +195,6 @@ AVAILABLE_AD_STATUSES = [
 def ensure_upload_folder():
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-
 def get_free_warehouse_slot():
     occupied_slots = {
         product.warehouse_id
@@ -201,10 +209,8 @@ def get_free_warehouse_slot():
 
     return None
 
-
 def is_valid_warehouse_id(value):
     return bool(re.fullmatch(r'\d{3}', value or ''))
-
 
 def save_uploaded_image(file_storage):
     if not file_storage or not file_storage.filename:
@@ -225,7 +231,6 @@ def save_uploaded_image(file_storage):
     file_storage.save(full_path)
 
     return f'uploads/{unique_filename}'
-
 
 def warehouse_slot_is_busy(warehouse_id, current_status, exclude_product_id=None):
     if current_status not in WAREHOUSE_UNIQUE_STATUSES:
@@ -314,6 +319,166 @@ def create_default_articles():
             db.session.add(Article(article=item))
 
     db.session.commit()
+
+def build_reports_data(request_args):
+    date_from = request_args.get('date_from', '').strip()
+    date_to = request_args.get('date_to', '').strip()
+    product_status = request_args.get('product_status', '').strip()
+    category_id = request_args.get('category_id', '').strip()
+
+    show_products = request_args.get('show_products') == '1'
+    show_sold_products = request_args.get('show_sold_products') == '1'
+    show_sales = request_args.get('show_sales') == '1'
+    show_finances = request_args.get('show_finances') == '1'
+    show_expense_articles = request_args.get('show_expense_articles') == '1'
+    show_sales_channels = request_args.get('show_sales_channels') == '1'
+    show_profit = request_args.get('show_profit') == '1'
+
+    date_from_value = None
+    date_to_value = None
+
+    try:
+        if date_from:
+            date_from_value = datetime.strptime(date_from, '%Y-%m-%d')
+        if date_to:
+            date_to_value = datetime.strptime(date_to, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+    except ValueError:
+        pass
+
+    products_query = Product.query.join(Category)
+    sales_query = Sale.query.join(Product).join(Buyer)
+    finances_query = Finance.query.join(FinType).join(Article)
+    ads_query = Advertisement.query
+
+    if product_status:
+        products_query = products_query.filter(Product.current_status == product_status)
+
+    if category_id:
+        try:
+            products_query = products_query.filter(Product.category_id == int(category_id))
+        except ValueError:
+            pass
+
+    if date_from_value:
+        sales_query = sales_query.filter(Sale.sale_begin_date >= date_from_value)
+        finances_query = finances_query.filter(Finance.op_date >= date_from_value)
+        ads_query = ads_query.filter(Advertisement.created_at >= date_from_value)
+
+    if date_to_value:
+        sales_query = sales_query.filter(Sale.sale_begin_date <= date_to_value)
+        finances_query = finances_query.filter(Finance.op_date <= date_to_value)
+        ads_query = ads_query.filter(Advertisement.created_at <= date_to_value)
+
+    products = products_query.order_by(Product.id.desc()).all()
+    sales = sales_query.order_by(Sale.sale_begin_date.desc()).all()
+    finances = finances_query.order_by(Finance.op_date.desc()).all()
+    advertisements = ads_query.order_by(Advertisement.created_at.desc()).all()
+
+    income_total = 0.0
+    expense_total = 0.0
+
+    for item in finances:
+        if item.fin_type.type == 'IN':
+            income_total += float(item.amount)
+        elif item.fin_type.type == 'OUT':
+            expense_total += float(item.amount)
+
+    active_ads_count = sum(1 for ad in advertisements if ad.ad_status == 'Активно')
+    active_sales_count = sum(1 for sale in sales if sale.sale_state == 'Активна')
+    completed_sales_count = sum(1 for sale in sales if sale.sale_state == 'Завершена')
+
+    repair_count = Product.query.filter_by(current_status='В ремонте').count()
+    reserved_count = Product.query.filter_by(current_status='Зарезервирован').count()
+    sold_count = Product.query.filter_by(current_status='Продан').count()
+
+    sold_products = [sale for sale in sales if sale.sale_state == 'Завершена']
+
+    product_profit_rows = []
+    for product in products:
+        expense_sum = 0.0
+        income_sum = 0.0
+
+        for fin in product.finances:
+            if date_from_value and fin.op_date < date_from_value:
+                continue
+            if date_to_value and fin.op_date > date_to_value:
+                continue
+
+            if fin.fin_type.type == 'OUT':
+                expense_sum += float(fin.amount)
+            elif fin.fin_type.type == 'IN':
+                income_sum += float(fin.amount)
+
+        product_profit_rows.append({
+            'product': product,
+            'expense': expense_sum,
+            'income': income_sum,
+            'profit': income_sum - expense_sum
+        })
+
+    expense_by_article = {}
+    for item in finances:
+        if item.fin_type.type == 'OUT':
+            article_name = item.article_ref.article
+            expense_by_article.setdefault(article_name, 0.0)
+            expense_by_article[article_name] += float(item.amount)
+
+    expense_by_article_rows = [
+        {'article': article, 'amount': amount}
+        for article, amount in expense_by_article.items()
+    ]
+    expense_by_article_rows.sort(key=lambda x: x['amount'], reverse=True)
+
+    sales_by_channel = {}
+    for sale in sales:
+        channel_name = sale.channel.strip() if sale.channel else 'Не указан'
+        sales_by_channel.setdefault(channel_name, 0)
+        sales_by_channel[channel_name] += 1
+
+    sales_by_channel_rows = [
+        {'channel': channel, 'count': count}
+        for channel, count in sales_by_channel.items()
+    ]
+    sales_by_channel_rows.sort(key=lambda x: x['count'], reverse=True)
+
+    summary = {
+        'products_count': len(products),
+        'active_ads_count': active_ads_count,
+        'active_sales_count': active_sales_count,
+        'completed_sales_count': completed_sales_count,
+        'income_total': income_total,
+        'expense_total': expense_total,
+        'profit_total': income_total - expense_total,
+        'repair_count': repair_count,
+        'reserved_count': reserved_count,
+        'sold_count': sold_count
+    }
+
+    filters = {
+        'date_from': date_from,
+        'date_to': date_to,
+        'product_status': product_status,
+        'category_id': category_id,
+        'show_products': show_products,
+        'show_sold_products': show_sold_products,
+        'show_sales': show_sales,
+        'show_finances': show_finances,
+        'show_expense_articles': show_expense_articles,
+        'show_sales_channels': show_sales_channels,
+        'show_profit': show_profit
+    }
+
+    return {
+        'summary': summary,
+        'products': products,
+        'sales': sales,
+        'finances': finances,
+        'sold_products': sold_products,
+        'product_profit_rows': product_profit_rows,
+        'expense_by_article_rows': expense_by_article_rows,
+        'sales_by_channel_rows': sales_by_channel_rows,
+        'filters': filters
+    }
 
 @app.route('/')
 def home():
@@ -1303,13 +1468,36 @@ def reports():
 
     date_from = request.args.get('date_from', '').strip()
     date_to = request.args.get('date_to', '').strip()
-    product_status = request.args.get('product_status', '').strip()
-    category_id = request.args.get('category_id', '').strip()
 
     products_sort = request.args.get('products_sort', 'id_desc').strip()
-    sales_sort = request.args.get('sales_sort', 'date_desc').strip()
-    finances_sort = request.args.get('finances_sort', 'date_desc').strip()
+    products_status = request.args.get('products_status', '').strip()
+    products_category_id = request.args.get('products_category_id', '').strip()
+
     sold_sort = request.args.get('sold_sort', 'sale_date_desc').strip()
+    sold_category_id = request.args.get('sold_category_id', '').strip()
+
+    sales_sort = request.args.get('sales_sort', 'date_desc').strip()
+    sales_state = request.args.get('sales_state', '').strip()
+    sales_channel = request.args.get('sales_channel', '').strip()
+
+    finances_sort = request.args.get('finances_sort', 'date_desc').strip()
+    finances_type = request.args.get('finances_type', '').strip()
+    finances_article_id = request.args.get('finances_article_id', '').strip()
+    finances_product_id = request.args.get('finances_product_id', '').strip()
+
+    expense_sort = request.args.get('expense_sort', 'amount_desc').strip()
+    channel_sort = request.args.get('channel_sort', 'count_desc').strip()
+    profit_sort = request.args.get('profit_sort', 'profit_desc').strip()
+    category_profit_sort = request.args.get('category_profit_sort', 'profit_desc').strip()
+
+    show_products = request.args.get('show_products') == '1'
+    show_sold_products = request.args.get('show_sold_products') == '1'
+    show_sales = request.args.get('show_sales') == '1'
+    show_finances = request.args.get('show_finances') == '1'
+    show_expense_articles = request.args.get('show_expense_articles') == '1'
+    show_sales_channels = request.args.get('show_sales_channels') == '1'
+    show_profit = request.args.get('show_profit') == '1'
+    show_category_profit = request.args.get('show_category_profit') == '1'
 
     date_from_value = None
     date_to_value = None
@@ -1322,34 +1510,60 @@ def reports():
     except ValueError:
         flash('Некорректный формат даты в фильтре отчетов', 'danger')
 
-    products_query = Product.query.join(Category)
-    sales_query = Sale.query.join(Product).join(Buyer)
-    finances_query = Finance.query.join(FinType).join(Article)
+    base_products_query = Product.query.join(Category)
+    base_sales_query = Sale.query.join(Product).join(Buyer)
+    base_finances_query = Finance.query.join(FinType).join(Article)
     ads_query = Advertisement.query
 
-    if product_status:
-        products_query = products_query.filter(Product.current_status == product_status)
-
-    if category_id:
-        try:
-            products_query = products_query.filter(Product.category_id == int(category_id))
-        except ValueError:
-            flash('Некорректная категория в фильтре отчетов', 'danger')
-
     if date_from_value:
-        sales_query = sales_query.filter(Sale.sale_begin_date >= date_from_value)
-        finances_query = finances_query.filter(Finance.op_date >= date_from_value)
+        base_sales_query = base_sales_query.filter(Sale.sale_begin_date >= date_from_value)
+        base_finances_query = base_finances_query.filter(Finance.op_date >= date_from_value)
         ads_query = ads_query.filter(Advertisement.created_at >= date_from_value)
 
     if date_to_value:
-        sales_query = sales_query.filter(Sale.sale_begin_date <= date_to_value)
-        finances_query = finances_query.filter(Finance.op_date <= date_to_value)
+        base_sales_query = base_sales_query.filter(Sale.sale_begin_date <= date_to_value)
+        base_finances_query = base_finances_query.filter(Finance.op_date <= date_to_value)
         ads_query = ads_query.filter(Advertisement.created_at <= date_to_value)
+
+    # Сводка
+    all_products = Product.query.all()
+    all_sales = base_sales_query.order_by(Sale.sale_begin_date.desc()).all()
+    all_finances = base_finances_query.order_by(Finance.op_date.desc()).all()
+    advertisements = ads_query.order_by(Advertisement.created_at.desc()).all()
+
+    income_total = 0.0
+    expense_total = 0.0
+    for item in all_finances:
+        if item.fin_type.type == 'IN':
+            income_total += float(item.amount)
+        elif item.fin_type.type == 'OUT':
+            expense_total += float(item.amount)
+
+    summary = {
+        'products_count': len(all_products),
+        'active_ads_count': sum(1 for ad in advertisements if ad.ad_status == 'Активно'),
+        'active_sales_count': sum(1 for sale in all_sales if sale.sale_state == 'Активна'),
+        'completed_sales_count': sum(1 for sale in all_sales if sale.sale_state == 'Завершена'),
+        'income_total': income_total,
+        'expense_total': expense_total,
+        'profit_total': income_total - expense_total,
+        'repair_count': sum(1 for product in all_products if product.current_status == 'В ремонте'),
+        'reserved_count': sum(1 for product in all_products if product.current_status == 'Зарезервирован'),
+        'sold_count': sum(1 for product in all_products if product.current_status == 'Продан')
+    }
+
+    # Товары
+    products_query = base_products_query
+    if products_status:
+        products_query = products_query.filter(Product.current_status == products_status)
+    if products_category_id:
+        try:
+            products_query = products_query.filter(Product.category_id == int(products_category_id))
+        except ValueError:
+            pass
 
     if products_sort == 'id_asc':
         products_query = products_query.order_by(Product.id.asc())
-    elif products_sort == 'id_desc':
-        products_query = products_query.order_by(Product.id.desc())
     elif products_sort == 'price_asc':
         products_query = products_query.order_by(Product.purchase_price.asc())
     elif products_sort == 'price_desc':
@@ -1359,6 +1573,33 @@ def reports():
     else:
         products_query = products_query.order_by(Product.id.desc())
 
+    products = products_query.all()
+
+    # Проданные товары
+    sold_sales_query = base_sales_query.filter(Sale.sale_state == 'Завершена')
+    if sold_category_id:
+        try:
+            sold_sales_query = sold_sales_query.filter(Product.category_id == int(sold_category_id))
+        except ValueError:
+            pass
+
+    sold_products = sold_sales_query.all()
+    if sold_sort == 'id_asc':
+        sold_products.sort(key=lambda x: x.product.id if x.product else 0)
+    elif sold_sort == 'id_desc':
+        sold_products.sort(key=lambda x: x.product.id if x.product else 0, reverse=True)
+    elif sold_sort == 'sale_date_asc':
+        sold_products.sort(key=lambda x: x.sale_date or datetime.min)
+    else:
+        sold_products.sort(key=lambda x: x.sale_date or datetime.min, reverse=True)
+
+    # Сделки
+    sales_query = base_sales_query
+    if sales_state:
+        sales_query = sales_query.filter(Sale.sale_state == sales_state)
+    if sales_channel:
+        sales_query = sales_query.filter(Sale.channel == sales_channel)
+
     if sales_sort == 'id_asc':
         sales_query = sales_query.order_by(Sale.id.asc())
     elif sales_sort == 'id_desc':
@@ -1367,6 +1608,23 @@ def reports():
         sales_query = sales_query.order_by(Sale.sale_begin_date.asc())
     else:
         sales_query = sales_query.order_by(Sale.sale_begin_date.desc())
+
+    sales = sales_query.all()
+
+    # Финансы
+    finances_query = base_finances_query
+    if finances_type:
+        finances_query = finances_query.filter(FinType.type == finances_type)
+    if finances_article_id:
+        try:
+            finances_query = finances_query.filter(Finance.article == int(finances_article_id))
+        except ValueError:
+            pass
+    if finances_product_id:
+        try:
+            finances_query = finances_query.filter(Finance.product_id == int(finances_product_id))
+        except ValueError:
+            pass
 
     if finances_sort == 'id_asc':
         finances_query = finances_query.order_by(Finance.id.asc())
@@ -1381,44 +1639,46 @@ def reports():
     else:
         finances_query = finances_query.order_by(Finance.op_date.desc())
 
-    products = products_query.all()
-    sales = sales_query.all()
     finances = finances_query.all()
-    advertisements = ads_query.all()
 
-    sold_products = []
-    for sale in sales:
-        if sale.sale_state == 'Завершена':
-            sold_products.append(sale)
+    # Расходы по статьям
+    expense_by_article = {}
+    for item in all_finances:
+        if item.fin_type.type == 'OUT':
+            article_name = item.article_ref.article
+            expense_by_article.setdefault(article_name, 0.0)
+            expense_by_article[article_name] += float(item.amount)
 
-    if sold_sort == 'id_asc':
-        sold_products.sort(key=lambda x: x.product.id if x.product else 0)
-    elif sold_sort == 'id_desc':
-        sold_products.sort(key=lambda x: x.product.id if x.product else 0, reverse=True)
-    elif sold_sort == 'sale_date_asc':
-        sold_products.sort(key=lambda x: x.sale_date or datetime.min)
+    expense_by_article_rows = [
+        {'article': article, 'amount': amount}
+        for article, amount in expense_by_article.items()
+    ]
+    if expense_sort == 'amount_asc':
+        expense_by_article_rows.sort(key=lambda x: x['amount'])
+    elif expense_sort == 'article_asc':
+        expense_by_article_rows.sort(key=lambda x: x['article'])
     else:
-        sold_products.sort(key=lambda x: x.sale_date or datetime.min, reverse=True)
+        expense_by_article_rows.sort(key=lambda x: x['amount'], reverse=True)
 
-    income_total = 0.0
-    expense_total = 0.0
+    # Сделки по каналам
+    sales_by_channel = {}
+    for sale in all_sales:
+        channel_name = sale.channel.strip() if sale.channel else 'Не указан'
+        sales_by_channel.setdefault(channel_name, 0)
+        sales_by_channel[channel_name] += 1
 
-    for item in finances:
-        if item.fin_type.type == 'IN':
-            income_total += float(item.amount)
-        elif item.fin_type.type == 'OUT':
-            expense_total += float(item.amount)
+    sales_by_channel_rows = [
+        {'channel': channel, 'count': count}
+        for channel, count in sales_by_channel.items()
+    ]
+    if channel_sort == 'channel_asc':
+        sales_by_channel_rows.sort(key=lambda x: x['channel'])
+    else:
+        sales_by_channel_rows.sort(key=lambda x: x['count'], reverse=True)
 
-    active_ads_count = sum(1 for ad in advertisements if ad.ad_status == 'Активно')
-    active_sales_count = sum(1 for sale in sales if sale.sale_state == 'Активна')
-    completed_sales_count = sum(1 for sale in sales if sale.sale_state == 'Завершена')
-
-    repair_count = sum(1 for product in Product.query.all() if product.current_status == 'В ремонте')
-    reserved_count = sum(1 for product in Product.query.all() if product.current_status == 'Зарезервирован')
-    sold_count = sum(1 for product in Product.query.all() if product.current_status == 'Продан')
-
+    # Прибыль по товарам
     product_profit_rows = []
-    for product in products:
+    for product in Product.query.order_by(Product.id.desc()).all():
         expense_sum = 0.0
         income_sum = 0.0
 
@@ -1440,55 +1700,82 @@ def reports():
             'profit': income_sum - expense_sum
         })
 
-    expense_by_article = {}
-    for item in finances:
-        if item.fin_type.type == 'OUT':
-            article_name = item.article_ref.article
-            expense_by_article.setdefault(article_name, 0.0)
-            expense_by_article[article_name] += float(item.amount)
+    if profit_sort == 'profit_asc':
+        product_profit_rows.sort(key=lambda x: x['profit'])
+    elif profit_sort == 'income_desc':
+        product_profit_rows.sort(key=lambda x: x['income'], reverse=True)
+    elif profit_sort == 'expense_desc':
+        product_profit_rows.sort(key=lambda x: x['expense'], reverse=True)
+    else:
+        product_profit_rows.sort(key=lambda x: x['profit'], reverse=True)
 
-    expense_by_article_rows = [
-        {'article': article, 'amount': amount}
-        for article, amount in expense_by_article.items()
-    ]
-    expense_by_article_rows.sort(key=lambda x: x['amount'], reverse=True)
+    # Прибыль по категориям
+    category_profit_map = {}
+    for product in Product.query.join(Category).all():
+        category_name = product.category.name
+        category_profit_map.setdefault(category_name, {
+            'category': category_name,
+            'expense': 0.0,
+            'income': 0.0,
+            'profit': 0.0
+        })
 
-    sales_by_channel = {}
-    for sale in sales:
-        channel_name = sale.channel.strip() if sale.channel else 'Не указан'
-        sales_by_channel.setdefault(channel_name, 0)
-        sales_by_channel[channel_name] += 1
+        for fin in product.finances:
+            if date_from_value and fin.op_date < date_from_value:
+                continue
+            if date_to_value and fin.op_date > date_to_value:
+                continue
 
-    sales_by_channel_rows = [
-        {'channel': channel, 'count': count}
-        for channel, count in sales_by_channel.items()
-    ]
-    sales_by_channel_rows.sort(key=lambda x: x['count'], reverse=True)
+            if fin.fin_type.type == 'OUT':
+                category_profit_map[category_name]['expense'] += float(fin.amount)
+            elif fin.fin_type.type == 'IN':
+                category_profit_map[category_name]['income'] += float(fin.amount)
 
-    summary = {
-        'products_count': len(products),
-        'active_ads_count': active_ads_count,
-        'active_sales_count': active_sales_count,
-        'completed_sales_count': completed_sales_count,
-        'income_total': income_total,
-        'expense_total': expense_total,
-        'profit_total': income_total - expense_total,
-        'repair_count': repair_count,
-        'reserved_count': reserved_count,
-        'sold_count': sold_count
-    }
+    category_profit_rows = list(category_profit_map.values())
+    for row in category_profit_rows:
+        row['profit'] = row['income'] - row['expense']
+
+    if category_profit_sort == 'profit_asc':
+        category_profit_rows.sort(key=lambda x: x['profit'])
+    elif category_profit_sort == 'income_desc':
+        category_profit_rows.sort(key=lambda x: x['income'], reverse=True)
+    elif category_profit_sort == 'expense_desc':
+        category_profit_rows.sort(key=lambda x: x['expense'], reverse=True)
+    else:
+        category_profit_rows.sort(key=lambda x: x['profit'], reverse=True)
 
     categories = Category.query.order_by(Category.name.asc()).all()
+    articles = Article.query.order_by(Article.article.asc()).all()
+    finance_products = Product.query.order_by(Product.id.desc()).all()
+    sale_channels = sorted({sale.channel for sale in Sale.query.all() if sale.channel})
 
     filters = {
         'date_from': date_from,
         'date_to': date_to,
-        'product_status': product_status,
-        'category_id': category_id,
         'products_sort': products_sort,
+        'products_status': products_status,
+        'products_category_id': products_category_id,
+        'sold_sort': sold_sort,
+        'sold_category_id': sold_category_id,
         'sales_sort': sales_sort,
+        'sales_state': sales_state,
+        'sales_channel': sales_channel,
         'finances_sort': finances_sort,
-        'sold_sort': sold_sort
+        'finances_type': finances_type,
+        'finances_article_id': finances_article_id,
+        'finances_product_id': finances_product_id,
+        'expense_sort': expense_sort,
+        'channel_sort': channel_sort,
+        'profit_sort': profit_sort,
+        'category_profit_sort': category_profit_sort,
+        'show_products': show_products,
+        'show_sold_products': show_sold_products,
+        'show_sales': show_sales,
+        'show_finances': show_finances,
+        'show_expense_articles': show_expense_articles,
+        'show_sales_channels': show_sales_channels,
+        'show_profit': show_profit,
+        'show_category_profit': show_category_profit
     }
 
     return render_template(
@@ -1499,11 +1786,216 @@ def reports():
         finances=finances,
         sold_products=sold_products,
         product_profit_rows=product_profit_rows,
+        category_profit_rows=category_profit_rows,
         expense_by_article_rows=expense_by_article_rows,
         sales_by_channel_rows=sales_by_channel_rows,
         filters=filters,
         categories=categories,
-        statuses=AVAILABLE_STATUSES + ['Опубликован']
+        articles=articles,
+        finance_products=finance_products,
+        sale_channels=sale_channels,
+        statuses=AVAILABLE_STATUSES + ['Опубликован'],
+        sale_states=AVAILABLE_SALE_STATES
+    )
+    
+@app.route('/reports/export/xlsx')
+def export_reports_xlsx():
+    if session.get('role') not in ['ip', 'admin']:
+        return redirect(url_for('login'))
+
+    data = build_reports_data(request.args)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Сводка'
+
+    row = 1
+    ws.cell(row=row, column=1, value='Аналитическая сводка')
+    row += 2
+
+    summary = data['summary']
+    summary_rows = [
+        ('Количество товаров', summary['products_count']),
+        ('Активные объявления', summary['active_ads_count']),
+        ('Активные сделки', summary['active_sales_count']),
+        ('Завершенные сделки', summary['completed_sales_count']),
+        ('Доходы', summary['income_total']),
+        ('Расходы', summary['expense_total']),
+        ('Финансовый результат', summary['profit_total']),
+        ('Товаров в ремонте', summary['repair_count']),
+        ('Товаров зарезервировано', summary['reserved_count']),
+        ('Товаров продано', summary['sold_count']),
+    ]
+
+    for title, value in summary_rows:
+        ws.cell(row=row, column=1, value=title)
+        ws.cell(row=row, column=2, value=value)
+        row += 1
+
+    if data['filters']['show_products']:
+        ws2 = wb.create_sheet('Товары')
+        headers = ['ID', 'Категория', 'Производитель', 'Модель', 'Статус', 'Закупочная цена']
+        for col, header in enumerate(headers, start=1):
+            ws2.cell(row=1, column=col, value=header)
+        for r, product in enumerate(data['products'], start=2):
+            ws2.cell(r, 1, product.id)
+            ws2.cell(r, 2, product.category.name)
+            ws2.cell(r, 3, product.manufacturer)
+            ws2.cell(r, 4, product.model)
+            ws2.cell(r, 5, product.current_status)
+            ws2.cell(r, 6, float(product.purchase_price) if product.purchase_price is not None else None)
+
+    if data['filters']['show_sold_products']:
+        ws3 = wb.create_sheet('Проданные товары')
+        headers = ['ID товара', 'Товар', 'Покупатель', 'Дата начала сделки', 'Дата продажи']
+        for col, header in enumerate(headers, start=1):
+            ws3.cell(row=1, column=col, value=header)
+        for r, sale in enumerate(data['sold_products'], start=2):
+            ws3.cell(r, 1, sale.product.id)
+            ws3.cell(r, 2, f'{sale.product.manufacturer} {sale.product.model}')
+            ws3.cell(r, 3, sale.buyer.full_name)
+            ws3.cell(r, 4, sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S'))
+            ws3.cell(r, 5, sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') if sale.sale_date else '')
+
+    if data['filters']['show_sales']:
+        ws4 = wb.create_sheet('Сделки')
+        headers = ['ID', 'Товар', 'Покупатель', 'Статус', 'Дата начала', 'Дата завершения', 'Канал']
+        for col, header in enumerate(headers, start=1):
+            ws4.cell(row=1, column=col, value=header)
+        for r, sale in enumerate(data['sales'], start=2):
+            ws4.cell(r, 1, sale.id)
+            ws4.cell(r, 2, f'{sale.product.manufacturer} {sale.product.model}')
+            ws4.cell(r, 3, sale.buyer.full_name)
+            ws4.cell(r, 4, sale.sale_state)
+            ws4.cell(r, 5, sale.sale_begin_date.strftime('%d.%m.%Y %H:%M:%S'))
+            ws4.cell(r, 6, sale.sale_date.strftime('%d.%m.%Y %H:%M:%S') if sale.sale_date else '')
+            ws4.cell(r, 7, sale.channel or '')
+
+    if data['filters']['show_finances']:
+        ws5 = wb.create_sheet('Финансы')
+        headers = ['ID', 'Дата', 'Тип', 'Статья', 'Сумма', 'Комментарий']
+        for col, header in enumerate(headers, start=1):
+            ws5.cell(row=1, column=col, value=header)
+        for r, item in enumerate(data['finances'], start=2):
+            ws5.cell(r, 1, item.id)
+            ws5.cell(r, 2, item.op_date.strftime('%d.%m.%Y %H:%M:%S'))
+            ws5.cell(r, 3, item.fin_type.type)
+            ws5.cell(r, 4, item.article_ref.article)
+            ws5.cell(r, 5, float(item.amount))
+            ws5.cell(r, 6, item.comment or '')
+
+    if data['filters']['show_expense_articles']:
+        ws6 = wb.create_sheet('Расходы по статьям')
+        ws6.cell(1, 1, 'Статья')
+        ws6.cell(1, 2, 'Сумма')
+        for r, row_data in enumerate(data['expense_by_article_rows'], start=2):
+            ws6.cell(r, 1, row_data['article'])
+            ws6.cell(r, 2, row_data['amount'])
+
+    if data['filters']['show_sales_channels']:
+        ws7 = wb.create_sheet('Сделки по каналам')
+        ws7.cell(1, 1, 'Канал')
+        ws7.cell(1, 2, 'Количество сделок')
+        for r, row_data in enumerate(data['sales_by_channel_rows'], start=2):
+            ws7.cell(r, 1, row_data['channel'])
+            ws7.cell(r, 2, row_data['count'])
+
+    if data['filters']['show_profit']:
+        ws8 = wb.create_sheet('Прибыль по товарам')
+        headers = ['ID товара', 'Товар', 'Расходы', 'Доходы', 'Результат']
+        for col, header in enumerate(headers, start=1):
+            ws8.cell(row=1, column=col, value=header)
+        for r, row_data in enumerate(data['product_profit_rows'], start=2):
+            ws8.cell(r, 1, row_data['product'].id)
+            ws8.cell(r, 2, f"{row_data['product'].manufacturer} {row_data['product'].model}")
+            ws8.cell(r, 3, row_data['expense'])
+            ws8.cell(r, 4, row_data['income'])
+            ws8.cell(r, 5, row_data['profit'])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='reports.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+@app.route('/reports/export/pdf')
+def export_reports_pdf():
+    if session.get('role') not in ['ip', 'admin']:
+        return redirect(url_for('login'))
+
+    data = build_reports_data(request.args)
+
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=landscape(A4))
+    width, height = landscape(A4)
+
+    font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+    pdfmetrics.registerFont(TTFont('DejaVuSans', font_path))
+    pdf.setFont('DejaVuSans', 12)
+
+    y = height - 40
+    pdf.drawString(30, y, 'Аналитическая сводка')
+    y -= 30
+
+    summary = data['summary']
+    lines = [
+        f"Количество товаров: {summary['products_count']}",
+        f"Активные объявления: {summary['active_ads_count']}",
+        f"Активные сделки: {summary['active_sales_count']}",
+        f"Завершенные сделки: {summary['completed_sales_count']}",
+        f"Доходы: {summary['income_total']:.2f}",
+        f"Расходы: {summary['expense_total']:.2f}",
+        f"Финансовый результат: {summary['profit_total']:.2f}",
+        f"Товаров в ремонте: {summary['repair_count']}",
+        f"Товаров зарезервировано: {summary['reserved_count']}",
+        f"Товаров продано: {summary['sold_count']}",
+    ]
+
+    for line in lines:
+        pdf.drawString(30, y, line)
+        y -= 20
+
+    selected_sections = []
+    if data['filters']['show_products']:
+        selected_sections.append('Товары')
+    if data['filters']['show_sold_products']:
+        selected_sections.append('Проданные товары')
+    if data['filters']['show_sales']:
+        selected_sections.append('Сделки')
+    if data['filters']['show_finances']:
+        selected_sections.append('Финансы')
+    if data['filters']['show_expense_articles']:
+        selected_sections.append('Расходы по статьям')
+    if data['filters']['show_sales_channels']:
+        selected_sections.append('Сделки по каналам')
+    if data['filters']['show_profit']:
+        selected_sections.append('Прибыль по товарам')
+
+    y -= 20
+    pdf.drawString(30, y, 'Выбранные аналитические блоки:')
+    y -= 20
+
+    for section in selected_sections:
+        pdf.drawString(50, y, f'- {section}')
+        y -= 18
+        if y < 40:
+            pdf.showPage()
+            pdf.setFont('DejaVuSans', 12)
+            y = height - 40
+
+    pdf.save()
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='reports.pdf',
+        mimetype='application/pdf'
     )
     
 @app.route('/finances', methods=['GET', 'POST'])
