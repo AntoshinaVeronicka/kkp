@@ -35,11 +35,6 @@
                     <input type="text" name="address" class="form-control" value="{{ buyer_form.address }}">
                 </div>
 
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">Канал обращения</label>
-                    <input type="text" name="source_channel" class="form-control" value="{{ buyer_form.source_channel }}">
-                </div>
-
                 <div class="col-12 mb-3">
                     <label class="form-label">Примечания</label>
                     <textarea name="notes" class="form-control" rows="3">{{ buyer_form.notes }}</textarea>
@@ -78,7 +73,6 @@
                     <th>ФИО / никнейм</th>
                     <th>Контакты</th>
                     <th>Адрес</th>
-                    <th>Канал обращения</th>
                     <th>Примечания</th>
                 </tr>
             </thead>
@@ -89,7 +83,6 @@
                         <td>{{ buyer.full_name }}</td>
                         <td>{{ buyer.contact_info }}</td>
                         <td>{{ buyer.address or '-' }}</td>
-                        <td>{{ buyer.source_channel or '-' }}</td>
                         <td>{{ buyer.notes or '-' }}</td>
                     </tr>
                 {% endfor %}

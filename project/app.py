@@ -16,6 +16,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
+from sqlalchemy import text
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///store.db'
@@ -95,15 +96,17 @@ class Sale(db.Model):
     __tablename__ = 'sales'
 
     id = db.Column(db.Integer, primary_key=True)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False, unique=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
     buyer_id = db.Column(db.Integer, db.ForeignKey('buyers.id'), nullable=False)
     sale_state = db.Column(db.String(50), nullable=False)
     sale_begin_date = db.Column(db.DateTime, nullable=False, default=now_vladivostok)
     sale_date = db.Column(db.DateTime, nullable=True)
     channel = db.Column(db.String(100), nullable=True)
     sale_comment = db.Column(db.Text, nullable=True)
+    invoice_scan_path = db.Column(db.Text, nullable=True)
+    payment_receipt_scan_path = db.Column(db.Text, nullable=True)
 
-    product = db.relationship('Product', backref=db.backref('sale', uselist=False))
+    product = db.relationship('Product', backref=db.backref('sales', lazy=True))
 
 class FinType(db.Model):
     __tablename__ = 'fin_type'
@@ -232,6 +235,9 @@ def save_uploaded_image(file_storage):
 
     return f'uploads/{unique_filename}'
 
+def save_uploaded_scan(file_storage):
+    return save_uploaded_image(file_storage)
+
 def warehouse_slot_is_busy(warehouse_id, current_status, exclude_product_id=None):
     if current_status not in WAREHOUSE_UNIQUE_STATUSES:
         return False
@@ -246,22 +252,111 @@ def warehouse_slot_is_busy(warehouse_id, current_status, exclude_product_id=None
 
     return db.session.query(query.exists()).scalar()
 
+def get_total_product_expenses(product):
+    total_expenses = 0.0
+    has_out_finances = False
+
+    for fin in product.finances:
+        if fin.fin_type and fin.fin_type.type == 'OUT' and fin.amount is not None:
+            total_expenses += float(fin.amount)
+            has_out_finances = True
+
+    if not has_out_finances and product.purchase_price is not None:
+        total_expenses += float(product.purchase_price)
+
+    return total_expenses
+
 def build_buyer_form_data(request_form):
     return {
         'full_name': request_form.get('buyer_full_name', '').strip(),
         'address': request_form.get('buyer_address', '').strip(),
         'contact_info': request_form.get('buyer_contact_info', '').strip(),
-        'source_channel': request_form.get('buyer_source_channel', '').strip(),
         'notes': request_form.get('buyer_notes', '').strip(),
     }
 
-def build_sale_form_data(request_form):
+def build_sale_form_data(request_form, channel=''):
     return {
         'buyer_id': request_form.get('buyer_id', '').strip(),
         'buyer_search': request_form.get('buyer_search', '').strip(),
-        'channel': request_form.get('channel', '').strip(),
+        'channel': channel,
         'sale_comment': request_form.get('sale_comment', '').strip(),
     }
+
+def get_preferred_advertisement_for_product(product_id):
+    active_ad = (
+        Advertisement.query
+        .filter_by(product_id=product_id, ad_status='Активно')
+        .order_by(Advertisement.created_at.desc())
+        .first()
+    )
+    if active_ad:
+        return active_ad
+
+    return (
+        Advertisement.query
+        .filter_by(product_id=product_id)
+        .order_by(Advertisement.created_at.desc())
+        .first()
+    )
+
+def get_sale_channel_for_product(product_id):
+    ad = get_preferred_advertisement_for_product(product_id)
+    if ad and ad.platform:
+        return ad.platform
+
+    return ''
+
+def get_sale_amount_value(sale):
+    income_finance = next(
+        (
+            finance for finance in sale.finances
+            if finance.fin_type and finance.fin_type.type == 'IN' and finance.amount is not None
+        ),
+        None
+    )
+    if income_finance:
+        return float(income_finance.amount)
+
+    ad = get_preferred_advertisement_for_product(sale.product_id)
+    if ad and ad.ad_price is not None:
+        return float(ad.ad_price)
+
+    return 0.0
+
+def get_current_sale_for_product(product):
+    active_sale = (
+        Sale.query
+        .filter_by(product_id=product.id, sale_state='Активна')
+        .order_by(Sale.sale_begin_date.desc())
+        .first()
+    )
+    if active_sale:
+        return active_sale
+
+    return (
+        Sale.query
+        .filter_by(product_id=product.id)
+        .order_by(Sale.sale_begin_date.desc(), Sale.id.desc())
+        .first()
+    )
+
+def build_buyer_sales_rows(sales):
+    buyer_sales_map = {}
+
+    for sale in sales:
+        if sale.sale_state != 'Завершена':
+            continue
+
+        buyer_id = sale.buyer.id
+        buyer_sales_map.setdefault(buyer_id, {
+            'buyer': sale.buyer,
+            'count': 0,
+            'amount': 0.0
+        })
+        buyer_sales_map[buyer_id]['count'] += 1
+        buyer_sales_map[buyer_id]['amount'] += get_sale_amount_value(sale)
+
+    return list(buyer_sales_map.values())
 
 def add_product_status_history_if_changed(product, new_status):
     old_status = product.current_status
@@ -281,6 +376,36 @@ def set_all_ads_to_sold(product_id):
     ads = Advertisement.query.filter(Advertisement.product_id == product_id).all()
     for ad in ads:
         ad.ad_status = 'Продано'
+
+def restore_advertisement_after_sale_cancel(product_id):
+    active_ad = Advertisement.query.filter_by(product_id=product_id, ad_status='Активно').first()
+    if active_ad:
+        return active_ad
+
+    removed_ad = (
+        Advertisement.query
+        .filter_by(product_id=product_id, ad_status='Снято')
+        .order_by(Advertisement.created_at.desc())
+        .first()
+    )
+    if removed_ad:
+        removed_ad.ad_status = 'Активно'
+        return removed_ad
+
+    return None
+
+def sync_product_publication_status(product):
+    has_active_ads = (
+        Advertisement.query
+        .filter_by(product_id=product.id, ad_status='Активно')
+        .first()
+        is not None
+    )
+
+    if has_active_ads and product.current_status == 'Готов к продаже':
+        add_product_status_history_if_changed(product, 'Опубликован')
+    elif not has_active_ads and product.current_status == 'Опубликован':
+        add_product_status_history_if_changed(product, 'Готов к продаже')
 
 def create_default_fin_types():
     default_types = ['IN', 'OUT']
@@ -332,7 +457,9 @@ def build_reports_data(request_args):
     show_finances = request_args.get('show_finances') == '1'
     show_expense_articles = request_args.get('show_expense_articles') == '1'
     show_sales_channels = request_args.get('show_sales_channels') == '1'
+    show_buyers_analytics = request_args.get('show_buyers_analytics') == '1'
     show_profit = request_args.get('show_profit') == '1'
+    buyer_sales_sort = request_args.get('buyer_sales_sort', 'amount_desc').strip()
 
     date_from_value = None
     date_to_value = None
@@ -441,6 +568,18 @@ def build_reports_data(request_args):
     ]
     sales_by_channel_rows.sort(key=lambda x: x['count'], reverse=True)
 
+    buyer_sales_rows = build_buyer_sales_rows(sales)
+    if buyer_sales_sort == 'amount_asc':
+        buyer_sales_rows.sort(key=lambda x: x['amount'])
+    elif buyer_sales_sort == 'count_desc':
+        buyer_sales_rows.sort(key=lambda x: x['count'], reverse=True)
+    elif buyer_sales_sort == 'count_asc':
+        buyer_sales_rows.sort(key=lambda x: x['count'])
+    elif buyer_sales_sort == 'buyer_asc':
+        buyer_sales_rows.sort(key=lambda x: x['buyer'].full_name.lower())
+    else:
+        buyer_sales_rows.sort(key=lambda x: x['amount'], reverse=True)
+
     summary = {
         'products_count': len(products),
         'active_ads_count': active_ads_count,
@@ -465,6 +604,8 @@ def build_reports_data(request_args):
         'show_finances': show_finances,
         'show_expense_articles': show_expense_articles,
         'show_sales_channels': show_sales_channels,
+        'show_buyers_analytics': show_buyers_analytics,
+        'buyer_sales_sort': buyer_sales_sort,
         'show_profit': show_profit
     }
 
@@ -477,6 +618,7 @@ def build_reports_data(request_args):
         'product_profit_rows': product_profit_rows,
         'expense_by_article_rows': expense_by_article_rows,
         'sales_by_channel_rows': sales_by_channel_rows,
+        'buyer_sales_rows': buyer_sales_rows,
         'filters': filters
     }
 
@@ -1103,7 +1245,7 @@ def advertisements():
         return redirect(url_for('login'))
 
     platform = request.args.get('platform', '').strip()
-    ad_status = request.args.get('ad_status', '').strip()
+    ad_status = request.args.get('ad_status', 'Активно').strip()
     manufacturer = request.args.get('manufacturer', '').strip()
     category_id = request.args.get('category_id', '').strip()
     price_from = request.args.get('price_from', '').strip()
@@ -1211,10 +1353,7 @@ def create_advertisement(product_id):
             flash('Заполните все обязательные поля объявления', 'danger')
             return render_template(
                 'advertisement_form.html',
-                product=product,
-                advertisement=form_data,
-                platforms=AVAILABLE_AD_PLATFORMS,
-                ad_statuses=AVAILABLE_AD_STATUSES
+                **build_advertisement_form_context(product, form_data)
             )
 
         try:
@@ -1223,10 +1362,18 @@ def create_advertisement(product_id):
                 flash('Цена в объявлении должна быть больше 0', 'danger')
                 return render_template(
                     'advertisement_form.html',
-                    product=product,
-                    advertisement=form_data,
-                    platforms=AVAILABLE_AD_PLATFORMS,
-                    ad_statuses=AVAILABLE_AD_STATUSES
+                    **build_advertisement_form_context(product, form_data)
+                )
+
+            total_expenses = get_total_product_expenses(product)
+            if ad_price_value < total_expenses:
+                flash(
+                    f'Цена в объявлении не может быть меньше суммы затрат по товару ({total_expenses:.2f} ₽)',
+                    'danger'
+                )
+                return render_template(
+                    'advertisement_form.html',
+                    **build_advertisement_form_context(product, form_data)
                 )
 
             new_advertisement = Advertisement(
@@ -1241,16 +1388,7 @@ def create_advertisement(product_id):
             )
 
             db.session.add(new_advertisement)
-
-            if ad_status == 'Активно' and product.current_status != 'Опубликован':
-                old_status = product.current_status
-                product.current_status = 'Опубликован'
-
-                if old_status != 'Опубликован':
-                    db.session.add(ProductStatusHistory(
-                        product_id=product.id,
-                        status_name='Опубликован'
-                    ))
+            sync_product_publication_status(product)
 
             db.session.commit()
 
@@ -1261,10 +1399,7 @@ def create_advertisement(product_id):
             flash('Проверьте корректность цены объявления', 'danger')
             return render_template(
                 'advertisement_form.html',
-                product=product,
-                advertisement=form_data,
-                platforms=AVAILABLE_AD_PLATFORMS,
-                ad_statuses=AVAILABLE_AD_STATUSES
+                **build_advertisement_form_context(product, form_data)
             )
 
     default_title = f'{product.manufacturer} {product.model}'.strip()
@@ -1289,11 +1424,142 @@ def create_advertisement(product_id):
 
     return render_template(
         'advertisement_form.html',
-        product=product,
-        advertisement=advertisement_data,
-        platforms=AVAILABLE_AD_PLATFORMS,
-        ad_statuses=AVAILABLE_AD_STATUSES
+        **build_advertisement_form_context(product, advertisement_data)
     )
+
+@app.route('/advertisements/<int:advertisement_id>/edit', methods=['GET', 'POST'])
+def edit_advertisement(advertisement_id):
+    if session.get('role') not in ['ip', 'admin']:
+        return redirect(url_for('login'))
+
+    db_advertisement = Advertisement.query.get_or_404(advertisement_id)
+    product = db_advertisement.product
+
+    if request.method == 'POST':
+        form_data = build_advertisement_form_data(request.form, product)
+        status_locked = db_advertisement.ad_status == 'Продано'
+
+        platform = form_data['platform']
+        ad_price = form_data['ad_price']
+        title = form_data['title']
+        description = form_data['description']
+        media_urls = form_data['media_urls']
+        ad_status = form_data['ad_status']
+        ad_url = form_data['ad_url']
+
+        if status_locked:
+            if ad_status and ad_status != 'Продано':
+                flash('Статус объявления «Продано» уже зафиксирован и не может быть изменен', 'danger')
+                form_data['ad_status'] = 'Продано'
+                return render_template(
+                    'advertisement_form.html',
+                    **build_advertisement_form_context(
+                        product,
+                        form_data,
+                        is_edit=True,
+                        advertisement_record=db_advertisement
+                    )
+                )
+
+            form_data['ad_status'] = 'Продано'
+            ad_status = 'Продано'
+
+        if not platform or not ad_price or not title or not description or not ad_status:
+            flash('Заполните все обязательные поля объявления', 'danger')
+            return render_template(
+                'advertisement_form.html',
+                **build_advertisement_form_context(
+                    product,
+                    form_data,
+                    is_edit=True,
+                    advertisement_record=db_advertisement
+                )
+            )
+
+        try:
+            ad_price_value = float(ad_price)
+            if ad_price_value <= 0:
+                flash('Цена в объявлении должна быть больше 0', 'danger')
+                return render_template(
+                    'advertisement_form.html',
+                    **build_advertisement_form_context(
+                        product,
+                        form_data,
+                        is_edit=True,
+                        advertisement_record=db_advertisement
+                    )
+                )
+
+            total_expenses = get_total_product_expenses(product)
+            if ad_price_value < total_expenses:
+                flash(
+                    f'Цена в объявлении не может быть меньше суммы затрат по товару ({total_expenses:.2f} ₽)',
+                    'danger'
+                )
+                return render_template(
+                    'advertisement_form.html',
+                    **build_advertisement_form_context(
+                        product,
+                        form_data,
+                        is_edit=True,
+                        advertisement_record=db_advertisement
+                    )
+                )
+
+            db_advertisement.platform = platform
+            db_advertisement.ad_price = ad_price_value
+            db_advertisement.title = title
+            db_advertisement.description = description
+            db_advertisement.media_urls = media_urls if media_urls else None
+            db_advertisement.ad_status = ad_status
+            db_advertisement.ad_url = ad_url if ad_url else None
+
+            sync_product_publication_status(product)
+
+            db.session.commit()
+
+            flash('Карточка объявления успешно обновлена', 'success')
+            return redirect(url_for('edit_advertisement', advertisement_id=db_advertisement.id))
+
+        except ValueError:
+            flash('Проверьте корректность цены объявления', 'danger')
+            return render_template(
+                'advertisement_form.html',
+                **build_advertisement_form_context(
+                    product,
+                    form_data,
+                    is_edit=True,
+                    advertisement_record=db_advertisement
+                )
+            )
+
+    return render_template(
+        'advertisement_form.html',
+        **build_advertisement_form_context(
+            product,
+            serialize_advertisement_form_data(db_advertisement),
+            is_edit=True,
+            advertisement_record=db_advertisement
+        )
+    )
+
+@app.route('/advertisements/<int:advertisement_id>/remove', methods=['POST'])
+def remove_advertisement(advertisement_id):
+    if session.get('role') not in ['ip', 'admin']:
+        return redirect(url_for('login'))
+
+    advertisement = Advertisement.query.get_or_404(advertisement_id)
+
+    if advertisement.ad_status != 'Активно':
+        flash('Снять с публикации можно только активное объявление', 'danger')
+        return redirect(url_for('edit_advertisement', advertisement_id=advertisement.id))
+
+    advertisement.ad_status = 'Снято'
+    sync_product_publication_status(advertisement.product)
+    db.session.commit()
+
+    flash('Объявление снято с публикации. Можно создать новое объявление по этому товару.', 'success')
+    return redirect(url_for('edit_advertisement', advertisement_id=advertisement.id))
     
 @app.route('/buyers', methods=['GET', 'POST'])
 def buyers():
@@ -1306,7 +1572,6 @@ def buyers():
         full_name = request.form.get('full_name', '').strip()
         address = request.form.get('address', '').strip()
         contact_info = request.form.get('contact_info', '').strip()
-        source_channel = request.form.get('source_channel', '').strip()
         notes = request.form.get('notes', '').strip()
 
         if not full_name or not contact_info:
@@ -1320,7 +1585,6 @@ def buyers():
                     full_name=full_name,
                     address=address or None,
                     contact_info=normalized_phone,
-                    source_channel=source_channel or None,
                     notes=notes or None
                 )
                 db.session.add(new_buyer)
@@ -1338,7 +1602,6 @@ def buyers():
         'full_name': '',
         'address': '',
         'contact_info': '',
-        'source_channel': '',
         'notes': ''
     }
 
@@ -1360,12 +1623,19 @@ def create_sale(product_id):
         flash('Создание сделки доступно только для товаров со статусом «Готов к продаже» или «Опубликован»', 'danger')
         return redirect(url_for('edit_product', product_id=product.id))
 
-    existing_sale = Sale.query.filter_by(product_id=product.id).first()
-    if existing_sale and existing_sale.sale_state == 'Активна':
+    existing_sale = (
+        Sale.query
+        .filter_by(product_id=product.id, sale_state='Активна')
+        .order_by(Sale.sale_begin_date.desc())
+        .first()
+    )
+    if existing_sale:
         flash('По этому товару уже существует активная сделка', 'danger')
         return redirect(url_for('sale_detail', sale_id=existing_sale.id))
 
     buyer_search = request.args.get('buyer_search', '').strip()
+    sale_channel = get_sale_channel_for_product(product.id)
+    sale_advertisement = get_preferred_advertisement_for_product(product.id)
     buyers_query = Buyer.query
     if buyer_search:
         buyers_query = buyers_query.filter(Buyer.contact_info.ilike(f'%{buyer_search}%'))
@@ -1380,7 +1650,7 @@ def create_sale(product_id):
 
             if not buyer_data['full_name'] or not buyer_data['contact_info']:
                 flash('Для создания покупателя заполните ФИО/никнейм и контактные данные', 'danger')
-                sale_data = build_sale_form_data(request.form)
+                sale_data = build_sale_form_data(request.form, sale_channel)
                 return render_template(
                     'sale_form.html',
                     product=product,
@@ -1388,14 +1658,15 @@ def create_sale(product_id):
                     sale=sale_data,
                     buyer_form=buyer_data,
                     show_buyer_form=True,
-                    no_buyer_found=no_buyer_found
+                    no_buyer_found=no_buyer_found,
+                    sale_advertisement=sale_advertisement
                 )
 
             normalized_phone = normalize_phone(buyer_data['contact_info'])
 
             if not normalized_phone:
                 flash('Введите телефон в корректном формате', 'danger')
-                sale_data = build_sale_form_data(request.form)
+                sale_data = build_sale_form_data(request.form, sale_channel)
                 return render_template(
                     'sale_form.html',
                     product=product,
@@ -1403,14 +1674,14 @@ def create_sale(product_id):
                     sale=sale_data,
                     buyer_form=buyer_data,
                     show_buyer_form=True,
-                    no_buyer_found=no_buyer_found
+                    no_buyer_found=no_buyer_found,
+                    sale_advertisement=sale_advertisement
                 )
 
             new_buyer = Buyer(
                 full_name=buyer_data['full_name'],
                 address=buyer_data['address'] or None,
                 contact_info=normalized_phone,
-                source_channel=buyer_data['source_channel'] or None,
                 notes=buyer_data['notes'] or None
             )
             
@@ -1420,7 +1691,7 @@ def create_sale(product_id):
             flash('Покупатель успешно создан. Теперь можно оформить сделку.', 'success')
             return redirect(url_for('create_sale', product_id=product.id, buyer_search=new_buyer.contact_info))
 
-        sale_data = build_sale_form_data(request.form)
+        sale_data = build_sale_form_data(request.form, sale_channel)
 
         if not sale_data['buyer_id']:
             flash('Выберите покупателя для сделки', 'danger')
@@ -1431,7 +1702,8 @@ def create_sale(product_id):
                 sale=sale_data,
                 buyer_form=build_buyer_form_data(request.form),
                 show_buyer_form=request.form.get('show_buyer_form') == '1',
-                no_buyer_found=no_buyer_found
+                no_buyer_found=no_buyer_found,
+                sale_advertisement=sale_advertisement
             )
 
         buyer = Buyer.query.get(sale_data['buyer_id'])
@@ -1444,7 +1716,8 @@ def create_sale(product_id):
                 sale=sale_data,
                 buyer_form=build_buyer_form_data(request.form),
                 show_buyer_form=request.form.get('show_buyer_form') == '1',
-                no_buyer_found=no_buyer_found
+                no_buyer_found=no_buyer_found,
+                sale_advertisement=sale_advertisement
             )
 
         new_sale = Sale(
@@ -1452,14 +1725,13 @@ def create_sale(product_id):
             buyer_id=buyer.id,
             sale_state='Активна',
             sale_begin_date=now_vladivostok(),
-            channel=sale_data['channel'] or None,
+            channel=sale_channel or None,
             sale_comment=sale_data['sale_comment'] or None
         )
 
         db.session.add(new_sale)
 
         add_product_status_history_if_changed(product, 'Зарезервирован')
-        set_active_ads_to_removed(product.id)
 
         db.session.commit()
 
@@ -1469,7 +1741,7 @@ def create_sale(product_id):
     sale_data = {
         'buyer_id': '',
         'buyer_search': buyer_search,
-        'channel': '',
+        'channel': sale_channel,
         'sale_comment': ''
     }
 
@@ -1477,7 +1749,6 @@ def create_sale(product_id):
         'full_name': '',
         'address': '',
         'contact_info': buyer_search,
-        'source_channel': '',
         'notes': ''
     }
 
@@ -1488,7 +1759,8 @@ def create_sale(product_id):
         sale=sale_data,
         buyer_form=empty_buyer_form,
         show_buyer_form=False,
-        no_buyer_found=no_buyer_found
+        no_buyer_found=no_buyer_found,
+        sale_advertisement=sale_advertisement
     )
 
 @app.route('/sales/<int:sale_id>')
@@ -1509,6 +1781,31 @@ def complete_sale(sale_id):
     if sale.sale_state != 'Активна':
         flash('Завершить можно только активную сделку', 'danger')
         return redirect(url_for('sale_detail', sale_id=sale.id))
+
+    invoice_scan = request.files.get('invoice_scan')
+    payment_receipt_scan = request.files.get('payment_receipt_scan')
+
+    if not sale.invoice_scan_path and (not invoice_scan or not invoice_scan.filename):
+        flash('Для завершения сделки загрузите скан накладной', 'danger')
+        return redirect(url_for('sale_detail', sale_id=sale.id))
+
+    if not sale.payment_receipt_scan_path and (not payment_receipt_scan or not payment_receipt_scan.filename):
+        flash('Для завершения сделки загрузите скан чека об оплате', 'danger')
+        return redirect(url_for('sale_detail', sale_id=sale.id))
+
+    if invoice_scan and invoice_scan.filename:
+        invoice_scan_path = save_uploaded_scan(invoice_scan)
+        if invoice_scan_path is None:
+            flash('Скан накладной должен быть изображением JPG, JPEG, PNG, GIF или WEBP', 'danger')
+            return redirect(url_for('sale_detail', sale_id=sale.id))
+        sale.invoice_scan_path = invoice_scan_path
+
+    if payment_receipt_scan and payment_receipt_scan.filename:
+        payment_receipt_scan_path = save_uploaded_scan(payment_receipt_scan)
+        if payment_receipt_scan_path is None:
+            flash('Скан чека об оплате должен быть изображением JPG, JPEG, PNG, GIF или WEBP', 'danger')
+            return redirect(url_for('sale_detail', sale_id=sale.id))
+        sale.payment_receipt_scan_path = payment_receipt_scan_path
 
     sale.sale_state = 'Завершена'
     sale.sale_date = now_vladivostok()
@@ -1554,6 +1851,32 @@ def complete_sale(sale_id):
 
     return redirect(url_for('sale_detail', sale_id=sale.id))
 
+@app.route('/sales/<int:sale_id>/cancel', methods=['POST'])
+def cancel_sale(sale_id):
+    if session.get('role') not in ['ip', 'admin']:
+        return redirect(url_for('login'))
+
+    sale = Sale.query.get_or_404(sale_id)
+
+    if sale.sale_state != 'Активна':
+        flash('Отменить можно только активную сделку', 'danger')
+        return redirect(url_for('sale_detail', sale_id=sale.id))
+
+    sale.sale_state = 'Отменена'
+    sale.sale_date = None
+
+    restored_ad = restore_advertisement_after_sale_cancel(sale.product_id)
+
+    if restored_ad:
+        add_product_status_history_if_changed(sale.product, 'Опубликован')
+    else:
+        add_product_status_history_if_changed(sale.product, 'Готов к продаже')
+
+    db.session.commit()
+
+    flash('Сделка отменена. Можно создать новую сделку по этому товару.', 'success')
+    return redirect(url_for('sale_detail', sale_id=sale.id))
+
 @app.route('/sales')
 def sales():
     if session.get('role') not in ['ip', 'admin']:
@@ -1595,6 +1918,7 @@ def reports():
 
     expense_sort = request.args.get('expense_sort', 'amount_desc').strip()
     channel_sort = request.args.get('channel_sort', 'count_desc').strip()
+    buyer_sales_sort = request.args.get('buyer_sales_sort', 'amount_desc').strip()
     profit_sort = request.args.get('profit_sort', 'profit_desc').strip()
     category_profit_sort = request.args.get('category_profit_sort', 'profit_desc').strip()
 
@@ -1604,6 +1928,7 @@ def reports():
     show_finances = request.args.get('show_finances') == '1'
     show_expense_articles = request.args.get('show_expense_articles') == '1'
     show_sales_channels = request.args.get('show_sales_channels') == '1'
+    show_buyers_analytics = request.args.get('show_buyers_analytics') == '1'
     show_profit = request.args.get('show_profit') == '1'
     show_category_profit = request.args.get('show_category_profit') == '1'
 
@@ -1784,6 +2109,19 @@ def reports():
     else:
         sales_by_channel_rows.sort(key=lambda x: x['count'], reverse=True)
 
+    # Сделки по покупателям
+    buyer_sales_rows = build_buyer_sales_rows(all_sales)
+    if buyer_sales_sort == 'amount_asc':
+        buyer_sales_rows.sort(key=lambda x: x['amount'])
+    elif buyer_sales_sort == 'count_desc':
+        buyer_sales_rows.sort(key=lambda x: x['count'], reverse=True)
+    elif buyer_sales_sort == 'count_asc':
+        buyer_sales_rows.sort(key=lambda x: x['count'])
+    elif buyer_sales_sort == 'buyer_asc':
+        buyer_sales_rows.sort(key=lambda x: x['buyer'].full_name.lower())
+    else:
+        buyer_sales_rows.sort(key=lambda x: x['amount'], reverse=True)
+
     # Прибыль по товарам
     product_profit_rows = []
     for product in Product.query.order_by(Product.id.desc()).all():
@@ -1874,6 +2212,7 @@ def reports():
         'finances_product_id': finances_product_id,
         'expense_sort': expense_sort,
         'channel_sort': channel_sort,
+        'buyer_sales_sort': buyer_sales_sort,
         'profit_sort': profit_sort,
         'category_profit_sort': category_profit_sort,
         'show_products': show_products,
@@ -1882,6 +2221,7 @@ def reports():
         'show_finances': show_finances,
         'show_expense_articles': show_expense_articles,
         'show_sales_channels': show_sales_channels,
+        'show_buyers_analytics': show_buyers_analytics,
         'show_profit': show_profit,
         'show_category_profit': show_category_profit
     }
@@ -1897,6 +2237,7 @@ def reports():
         category_profit_rows=category_profit_rows,
         expense_by_article_rows=expense_by_article_rows,
         sales_by_channel_rows=sales_by_channel_rows,
+        buyer_sales_rows=buyer_sales_rows,
         filters=filters,
         categories=categories,
         articles=articles,
@@ -2008,17 +2349,29 @@ def export_reports_xlsx():
             ws7.cell(r, 1, row_data['channel'])
             ws7.cell(r, 2, row_data['count'])
 
-    if data['filters']['show_profit']:
-        ws8 = wb.create_sheet('Прибыль по товарам')
-        headers = ['ID товара', 'Товар', 'Расходы', 'Доходы', 'Результат']
+    if data['filters']['show_buyers_analytics']:
+        ws8 = wb.create_sheet('Покупатели')
+        headers = ['ID покупателя', 'Покупатель', 'Контакты', 'Количество сделок', 'Сумма сделок']
         for col, header in enumerate(headers, start=1):
             ws8.cell(row=1, column=col, value=header)
+        for r, row_data in enumerate(data['buyer_sales_rows'], start=2):
+            ws8.cell(r, 1, row_data['buyer'].id)
+            ws8.cell(r, 2, row_data['buyer'].full_name)
+            ws8.cell(r, 3, row_data['buyer'].contact_info)
+            ws8.cell(r, 4, row_data['count'])
+            ws8.cell(r, 5, row_data['amount'])
+
+    if data['filters']['show_profit']:
+        ws9 = wb.create_sheet('Прибыль по товарам')
+        headers = ['ID товара', 'Товар', 'Расходы', 'Доходы', 'Результат']
+        for col, header in enumerate(headers, start=1):
+            ws9.cell(row=1, column=col, value=header)
         for r, row_data in enumerate(data['product_profit_rows'], start=2):
-            ws8.cell(r, 1, row_data['product'].id)
-            ws8.cell(r, 2, f"{row_data['product'].manufacturer} {row_data['product'].model}")
-            ws8.cell(r, 3, row_data['expense'])
-            ws8.cell(r, 4, row_data['income'])
-            ws8.cell(r, 5, row_data['profit'])
+            ws9.cell(r, 1, row_data['product'].id)
+            ws9.cell(r, 2, f"{row_data['product'].manufacturer} {row_data['product'].model}")
+            ws9.cell(r, 3, row_data['expense'])
+            ws9.cell(r, 4, row_data['income'])
+            ws9.cell(r, 5, row_data['profit'])
 
     output = BytesIO()
     wb.save(output)
@@ -2081,6 +2434,8 @@ def export_reports_pdf():
         selected_sections.append('Расходы по статьям')
     if data['filters']['show_sales_channels']:
         selected_sections.append('Сделки по каналам')
+    if data['filters']['show_buyers_analytics']:
+        selected_sections.append('Покупатели')
     if data['filters']['show_profit']:
         selected_sections.append('Прибыль по товарам')
 
@@ -2300,6 +2655,29 @@ def build_advertisement_form_data(request_form, product):
         'ad_url': request_form.get('ad_url', '').strip(),
     }
 
+def serialize_advertisement_form_data(advertisement):
+    return {
+        'id': advertisement.id,
+        'platform': advertisement.platform or '',
+        'ad_price': str(advertisement.ad_price) if advertisement.ad_price is not None else '',
+        'title': advertisement.title or '',
+        'description': advertisement.description or '',
+        'media_urls': advertisement.media_urls or '',
+        'ad_status': advertisement.ad_status or '',
+        'ad_url': advertisement.ad_url or '',
+    }
+
+def build_advertisement_form_context(product, advertisement, is_edit=False, advertisement_record=None):
+    return {
+        'product': product,
+        'advertisement': advertisement,
+        'platforms': AVAILABLE_AD_PLATFORMS,
+        'ad_statuses': AVAILABLE_AD_STATUSES,
+        'is_edit': is_edit,
+        'advertisement_record': advertisement_record,
+        'sale': get_current_sale_for_product(product)
+    }
+
 def create_test_users():
     admin_exists = User.query.filter_by(username='admin').first()
     ip_exists = User.query.filter_by(username='ip_user').first()
@@ -2342,11 +2720,86 @@ def create_default_categories():
 
     db.session.commit()
 
+def ensure_sales_table_schema():
+    columns = {
+        row[1]
+        for row in db.session.execute(text("PRAGMA table_info(sales)")).fetchall()
+    }
+
+    needs_rebuild = False
+    index_rows = db.session.execute(text("PRAGMA index_list(sales)")).fetchall()
+    for index_row in index_rows:
+        index_name = index_row[1]
+        is_unique = bool(index_row[2])
+        if not is_unique:
+            continue
+
+        indexed_columns = [
+            item[2]
+            for item in db.session.execute(text(f"PRAGMA index_info('{index_name}')")).fetchall()
+        ]
+        if indexed_columns == ['product_id']:
+            needs_rebuild = True
+            break
+
+    if needs_rebuild:
+        invoice_select = 'invoice_scan_path' if 'invoice_scan_path' in columns else 'NULL AS invoice_scan_path'
+        receipt_select = (
+            'payment_receipt_scan_path'
+            if 'payment_receipt_scan_path' in columns
+            else 'NULL AS payment_receipt_scan_path'
+        )
+
+        db.session.execute(text('PRAGMA foreign_keys=OFF'))
+        db.session.execute(text("""
+            CREATE TABLE sales_new (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL,
+                buyer_id INTEGER NOT NULL,
+                sale_state VARCHAR(50) NOT NULL,
+                sale_begin_date DATETIME NOT NULL,
+                sale_date DATETIME,
+                channel VARCHAR(100),
+                sale_comment TEXT,
+                invoice_scan_path TEXT,
+                payment_receipt_scan_path TEXT,
+                FOREIGN KEY(product_id) REFERENCES products(id),
+                FOREIGN KEY(buyer_id) REFERENCES buyers(id)
+            )
+        """))
+        db.session.execute(text(f"""
+            INSERT INTO sales_new (
+                id, product_id, buyer_id, sale_state, sale_begin_date,
+                sale_date, channel, sale_comment, invoice_scan_path, payment_receipt_scan_path
+            )
+            SELECT
+                id, product_id, buyer_id, sale_state, sale_begin_date,
+                sale_date, channel, sale_comment, {invoice_select}, {receipt_select}
+            FROM sales
+        """))
+        db.session.execute(text('DROP TABLE sales'))
+        db.session.execute(text('ALTER TABLE sales_new RENAME TO sales'))
+        db.session.execute(text('PRAGMA foreign_keys=ON'))
+        db.session.commit()
+        columns = {
+            row[1]
+            for row in db.session.execute(text("PRAGMA table_info(sales)")).fetchall()
+        }
+
+    if 'invoice_scan_path' not in columns:
+        db.session.execute(text('ALTER TABLE sales ADD COLUMN invoice_scan_path TEXT'))
+
+    if 'payment_receipt_scan_path' not in columns:
+        db.session.execute(text('ALTER TABLE sales ADD COLUMN payment_receipt_scan_path TEXT'))
+
+    db.session.commit()
+
 
 if __name__ == '__main__':
     with app.app_context():
         ensure_upload_folder()
         db.create_all()
+        ensure_sales_table_schema()
         create_test_users()
         create_default_categories()
         create_default_fin_types()

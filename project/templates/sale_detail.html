@@ -36,18 +36,54 @@
         <p class="mb-1"><strong>ФИО / никнейм:</strong> {{ sale.buyer.full_name }}</p>
         <p class="mb-1"><strong>Контакты:</strong> {{ sale.buyer.contact_info }}</p>
         <p class="mb-1"><strong>Адрес:</strong> {{ sale.buyer.address or '-' }}</p>
-        <p class="mb-1"><strong>Канал обращения:</strong> {{ sale.buyer.source_channel or '-' }}</p>
         <p class="mb-0"><strong>Примечания:</strong> {{ sale.buyer.notes or '-' }}</p>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5>Документы сделки</h5>
+        <p class="mb-2"><strong>Скан накладной:</strong>
+            {% if sale.invoice_scan_path %}
+                <a href="{{ url_for('static', filename=sale.invoice_scan_path) }}" target="_blank">Открыть</a>
+            {% else %}
+                -
+            {% endif %}
+        </p>
+        <p class="mb-0"><strong>Скан чека об оплате:</strong>
+            {% if sale.payment_receipt_scan_path %}
+                <a href="{{ url_for('static', filename=sale.payment_receipt_scan_path) }}" target="_blank">Открыть</a>
+            {% else %}
+                -
+            {% endif %}
+        </p>
     </div>
 </div>
 
 <div class="d-flex gap-2 flex-wrap">
     {% if sale.sale_state == 'Активна' %}
-        <form method="POST" action="{{ url_for('complete_sale', sale_id=sale.id) }}">
-            <button type="submit" class="btn btn-success">Завершить сделку</button>
-        </form>
+        <div class="card border-success w-100 mb-3">
+            <div class="card-body">
+                <h5 class="mb-3">Завершение сделки</h5>
+                <form method="POST" action="{{ url_for('complete_sale', sale_id=sale.id) }}" enctype="multipart/form-data">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Скан накладной {% if not sale.invoice_scan_path %}*{% endif %}</label>
+                            <input type="file" name="invoice_scan" class="form-control" accept=".jpg,.jpeg,.png,.gif,.webp,image/*" {% if not sale.invoice_scan_path %}required{% endif %}>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Скан чека об оплате {% if not sale.payment_receipt_scan_path %}*{% endif %}</label>
+                            <input type="file" name="payment_receipt_scan" class="form-control" accept=".jpg,.jpeg,.png,.gif,.webp,image/*" {% if not sale.payment_receipt_scan_path %}required{% endif %}>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-success">Завершить сделку</button>
+                </form>
+                <form method="POST" action="{{ url_for('cancel_sale', sale_id=sale.id) }}" class="mt-2">
+                    <button type="submit" class="btn btn-outline-danger">Отменить сделку</button>
+                </form>
+            </div>
+        </div>
     {% endif %}
-
     <a href="{{ url_for('edit_product', product_id=sale.product.id) }}" class="btn btn-warning">Карточка товара</a>
     <a href="{{ url_for('sales') }}" class="btn btn-secondary">К списку сделок</a>
 </div>

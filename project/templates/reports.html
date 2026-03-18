@@ -47,6 +47,10 @@
                     <label class="form-check-label">Сделки по каналам</label>
                 </div>
                 <div class="col-md-3 form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="show_buyers_analytics" value="1" {% if filters.show_buyers_analytics %}checked{% endif %}>
+                    <label class="form-check-label">Продажи по покупателям</label>
+                </div>
+                <div class="col-md-3 form-check mt-2">
                     <input class="form-check-input" type="checkbox" name="show_profit" value="1" {% if filters.show_profit %}checked{% endif %}>
                     <label class="form-check-label">Прибыль по товарам</label>
                 </div>
@@ -113,6 +117,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -180,6 +185,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -236,6 +242,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -302,6 +309,7 @@
     <input type="hidden" name="show_finances" value="1">
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -377,6 +385,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     <input type="hidden" name="show_expense_articles" value="1">
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -418,6 +427,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     <input type="hidden" name="show_sales_channels" value="1">
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -447,6 +457,53 @@
 </div>
 {% endif %}
 
+{% if filters.show_buyers_analytics %}
+<h4 class="mb-3">Покупатели</h4>
+<form method="GET" action="{{ url_for('reports') }}" class="mb-2">
+    <input type="hidden" name="date_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="date_to" value="{{ filters.date_to }}">
+    {% if filters.show_products %}<input type="hidden" name="show_products" value="1">{% endif %}
+    {% if filters.show_sold_products %}<input type="hidden" name="show_sold_products" value="1">{% endif %}
+    {% if filters.show_sales %}<input type="hidden" name="show_sales" value="1">{% endif %}
+    {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
+    {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
+    {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    <input type="hidden" name="show_buyers_analytics" value="1">
+    {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
+    {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
+
+    <div class="d-flex gap-2">
+        <select name="buyer_sales_sort" class="form-select w-auto">
+            <option value="amount_desc" {% if filters.buyer_sales_sort == 'amount_desc' %}selected{% endif %}>Сумма по убыванию</option>
+            <option value="amount_asc" {% if filters.buyer_sales_sort == 'amount_asc' %}selected{% endif %}>Сумма по возрастанию</option>
+            <option value="count_desc" {% if filters.buyer_sales_sort == 'count_desc' %}selected{% endif %}>Сделки по убыванию</option>
+            <option value="count_asc" {% if filters.buyer_sales_sort == 'count_asc' %}selected{% endif %}>Сделки по возрастанию</option>
+            <option value="buyer_asc" {% if filters.buyer_sales_sort == 'buyer_asc' %}selected{% endif %}>Покупатель А-Я</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Применить к таблице</button>
+    </div>
+</form>
+
+<div class="table-responsive mb-5">
+    <table class="table table-bordered table-striped">
+        <thead>
+            <tr><th>ID покупателя</th><th>Покупатель</th><th>Контакты</th><th>Количество сделок</th><th>Общая сумма</th></tr>
+        </thead>
+        <tbody>
+        {% for row in buyer_sales_rows %}
+            <tr>
+                <td>{{ row.buyer.id }}</td>
+                <td>{{ row.buyer.full_name }}</td>
+                <td>{{ row.buyer.contact_info }}</td>
+                <td>{{ row.count }}</td>
+                <td>{{ '%.2f'|format(row.amount) }} ₽</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
 {% if filters.show_profit %}
 <h4 class="mb-3">Прибыль по товарам</h4>
 <form method="GET" action="{{ url_for('reports') }}" class="mb-2">
@@ -458,6 +515,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     <input type="hidden" name="show_profit" value="1">
     {% if filters.show_category_profit %}<input type="hidden" name="show_category_profit" value="1">{% endif %}
 
@@ -503,6 +561,7 @@
     {% if filters.show_finances %}<input type="hidden" name="show_finances" value="1">{% endif %}
     {% if filters.show_expense_articles %}<input type="hidden" name="show_expense_articles" value="1">{% endif %}
     {% if filters.show_sales_channels %}<input type="hidden" name="show_sales_channels" value="1">{% endif %}
+    {% if filters.show_buyers_analytics %}<input type="hidden" name="show_buyers_analytics" value="1">{% endif %}
     {% if filters.show_profit %}<input type="hidden" name="show_profit" value="1">{% endif %}
     <input type="hidden" name="show_category_profit" value="1">
 

@@ -65,8 +65,9 @@
                 </div>
 
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">Канал продажи</label>
-                    <input type="text" name="channel" class="form-control" value="{{ sale.channel }}">
+                    <label class="form-label">Площадка объявления</label>
+                    <input type="text" class="form-control" value="{{ sale.channel or '-' }}" disabled>
+                    <div class="form-text">Поле заполняется автоматически по объявлению товара.</div>
                 </div>
 
                 <div class="col-12 mb-3">
@@ -77,7 +78,11 @@
 
             <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-success">Создать сделку</button>
-                <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-secondary">Назад к товару</a>
+                <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-warning">Карточка товара</a>
+                {% if sale_advertisement %}
+                <a href="{{ url_for('edit_advertisement', advertisement_id=sale_advertisement.id) }}" class="btn btn-primary">Карточка объявления</a>
+                {% endif %}
+                <a href="{{ url_for('products') }}" class="btn btn-secondary">К списку товаров</a>
             </div>
         </form>
     </div>
@@ -104,7 +109,7 @@
                         id="buyer_contact_info"
                         class="form-control"
                         value="{{ buyer_form.contact_info }}"
-                        maxlength="16"
+                        maxlength="17"
                         placeholder="+7(900)-123-45-67"
                         required
                     >
@@ -113,11 +118,6 @@
                 <div class="col-md-6 mb-3">
                     <label class="form-label">Адрес</label>
                     <input type="text" name="buyer_address" class="form-control" value="{{ buyer_form.address }}">
-                </div>
-
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">Канал обращения</label>
-                    <input type="text" name="buyer_source_channel" class="form-control" value="{{ buyer_form.source_channel }}">
                 </div>
 
                 <div class="col-12 mb-3">
