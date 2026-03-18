@@ -44,32 +44,7 @@
                     >
                 </div>
 
-                <div class="col-md-2 mb-3">
-                    <label class="form-label">Категория</label>
-                    <select name="category_id" class="form-select">
-                        <option value="">Все категории</option>
-                        {% for category in categories %}
-                            <option value="{{ category.id }}"
-                                {% if filters.category_id|string == category.id|string %}selected{% endif %}>
-                                {{ category.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="col-md-2 mb-3">
-                    <label class="form-label">Производитель</label>
-                    <select name="manufacturer" class="form-select">
-                        <option value="">Все производители</option>
-                        {% for item in manufacturers %}
-                            <option value="{{ item }}"
-                                {% if filters.manufacturer == item %}selected{% endif %}>
-                                {{ item }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
+                
                 <div class="col-md-2 mb-3">
                     <label class="form-label">Статус</label>
                     <select name="status" class="form-select">
@@ -83,40 +58,7 @@
                     </select>
                 </div>
 
-                <div class="col-md-2 mb-3">
-                    <label class="form-label">Сортировка</label>
-                    <select name="sort_by" class="form-select">
-                        <option value="id_desc" {% if filters.sort_by == 'id_desc' %}selected{% endif %}>ID по убыванию</option>
-                        <option value="id_asc" {% if filters.sort_by == 'id_asc' %}selected{% endif %}>ID по возрастанию</option>
-                        <option value="price_asc" {% if filters.sort_by == 'price_asc' %}selected{% endif %}>Цена по возрастанию</option>
-                        <option value="price_desc" {% if filters.sort_by == 'price_desc' %}selected{% endif %}>Цена по убыванию</option>
-                    </select>
-                </div>
-
-                <div class="col-md-2 mb-3">
-                    <label class="form-label">Цена от</label>
-                    <input
-                        type="number"
-                        name="price_from"
-                        step="0.01"
-                        min="0"
-                        class="form-control no-spin"
-                        value="{{ filters.price_from }}"
-                    >
-                </div>
-
-                <div class="col-md-2 mb-3">
-                    <label class="form-label">Цена до</label>
-                    <input
-                        type="number"
-                        name="price_to"
-                        step="0.01"
-                        min="0"
-                        class="form-control no-spin"
-                        value="{{ filters.price_to }}"
-                    >
-                </div>
-
+                
                 <div class="col-md-8 mb-3 d-flex align-items-end gap-2">
                     <button type="submit" class="btn btn-success">Применить</button>
                     <a href="{{ url_for('products') }}" class="btn btn-outline-secondary">Сбросить</a>

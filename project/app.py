@@ -517,7 +517,6 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/products')
-
 def products():
     if session.get('role') not in ['ip', 'admin']:
         return redirect(url_for('login'))
@@ -540,6 +539,8 @@ def products():
 
     if status:
         query = query.filter(Product.current_status == status)
+    else:
+        query = query.filter(Product.current_status != 'Продан')
 
     if search:
         query = query.filter(
@@ -604,7 +605,7 @@ def products():
         manufacturers=manufacturers,
         statuses=AVAILABLE_STATUSES,
         filters=filters
-    ) 
+    )
 
 @app.route('/products/create', methods=['GET', 'POST'])
 def create_product():
@@ -808,7 +809,100 @@ def edit_product(product_id):
     categories = Category.query.order_by(Category.name).all()
     warehouse_locked = db_product.current_status in WAREHOUSE_LOCKED_STATUSES
 
+    show_repair_expense_form = request.args.get('show_repair_expense') == '1'
+
     if request.method == 'POST':
+        action = request.form.get('action', 'save_product')
+
+        if action == 'save_repair_expense':
+            repair_amount = request.form.get('repair_amount', '').strip()
+            repair_comment = request.form.get('repair_comment', '').strip()
+
+            product_data = {
+                'id': db_product.id,
+                'category_id': db_product.category_id,
+                'warehouse_id': db_product.warehouse_id or '',
+                'manufacturer': db_product.manufacturer or '',
+                'model': db_product.model or '',
+                'purchase_price': str(db_product.purchase_price) if db_product.purchase_price is not None else '',
+                'image_path': db_product.image_path,
+                'specifications': db_product.specifications or '',
+                'condition_rate': db_product.condition_rate,
+                'current_status': db_product.current_status or '',
+                'comments': db_product.comments or '',
+                'status_history': db_product.status_history
+            }
+
+            try:
+                repair_amount_value = float(repair_amount)
+                if repair_amount_value <= 0:
+                    flash('Сумма расхода на ремонт должна быть больше 0', 'danger')
+                    return render_template(
+                        'product_form.html',
+                        product=product_data,
+                        categories=categories,
+                        statuses=AVAILABLE_STATUSES,
+                        suggested_slot=None,
+                        warehouse_locked=warehouse_locked,
+                        is_edit=True,
+                        show_repair_expense_form=True,
+                        repair_form={
+                            'repair_amount': repair_amount,
+                            'repair_comment': repair_comment
+                        }
+                    )
+
+                out_type_id = get_fin_type_id_by_code('OUT')
+                repair_article_id = get_article_id_by_name('ремонт')
+
+                if not out_type_id or not repair_article_id:
+                    flash('Не найдены справочники финансовой операции для ремонта', 'danger')
+                    return render_template(
+                        'product_form.html',
+                        product=product_data,
+                        categories=categories,
+                        statuses=AVAILABLE_STATUSES,
+                        suggested_slot=None,
+                        warehouse_locked=warehouse_locked,
+                        is_edit=True,
+                        show_repair_expense_form=True,
+                        repair_form={
+                            'repair_amount': repair_amount,
+                            'repair_comment': repair_comment
+                        }
+                    )
+
+                db.session.add(Finance(
+                    type=out_type_id,
+                    op_date=now_vladivostok(),
+                    article=repair_article_id,
+                    amount=repair_amount_value,
+                    product_id=db_product.id,
+                    sale_id=None,
+                    comment=repair_comment or 'Расход на ремонт товара'
+                ))
+                db.session.commit()
+
+                flash('Расход на ремонт успешно добавлен', 'success')
+                return redirect(url_for('edit_product', product_id=db_product.id))
+
+            except ValueError:
+                flash('Проверьте корректность суммы расхода на ремонт', 'danger')
+                return render_template(
+                    'product_form.html',
+                    product=product_data,
+                    categories=categories,
+                    statuses=AVAILABLE_STATUSES,
+                    suggested_slot=None,
+                    warehouse_locked=warehouse_locked,
+                    is_edit=True,
+                    show_repair_expense_form=True,
+                    repair_form={
+                        'repair_amount': repair_amount,
+                        'repair_comment': repair_comment
+                    }
+                )
+
         form_data = build_product_form_data(request.form, image_path=db_product.image_path)
 
         old_status = db_product.current_status
@@ -839,7 +933,9 @@ def edit_product(product_id):
                 statuses=AVAILABLE_STATUSES,
                 suggested_slot=None,
                 warehouse_locked=warehouse_locked,
-                is_edit=True
+                is_edit=True,
+                show_repair_expense_form=False,
+                repair_form={'repair_amount': '', 'repair_comment': ''}
             )
 
         if not warehouse_id:
@@ -851,7 +947,9 @@ def edit_product(product_id):
                 statuses=AVAILABLE_STATUSES,
                 suggested_slot=None,
                 warehouse_locked=warehouse_locked,
-                is_edit=True
+                is_edit=True,
+                show_repair_expense_form=False,
+                repair_form={'repair_amount': '', 'repair_comment': ''}
             )
 
         if not is_valid_warehouse_id(warehouse_id):
@@ -863,7 +961,9 @@ def edit_product(product_id):
                 statuses=AVAILABLE_STATUSES,
                 suggested_slot=None,
                 warehouse_locked=warehouse_locked,
-                is_edit=True
+                is_edit=True,
+                show_repair_expense_form=False,
+                repair_form={'repair_amount': '', 'repair_comment': ''}
             )
 
         try:
@@ -877,7 +977,9 @@ def edit_product(product_id):
                     statuses=AVAILABLE_STATUSES,
                     suggested_slot=None,
                     warehouse_locked=warehouse_locked,
-                    is_edit=True
+                    is_edit=True,
+                    show_repair_expense_form=False,
+                    repair_form={'repair_amount': '', 'repair_comment': ''}
                 )
 
             purchase_price_value = None
@@ -892,7 +994,9 @@ def edit_product(product_id):
                         statuses=AVAILABLE_STATUSES,
                         suggested_slot=None,
                         warehouse_locked=warehouse_locked,
-                        is_edit=True
+                        is_edit=True,
+                        show_repair_expense_form=False,
+                        repair_form={'repair_amount': '', 'repair_comment': ''}
                     )
 
             if warehouse_slot_is_busy(warehouse_id, current_status, exclude_product_id=db_product.id):
@@ -904,7 +1008,9 @@ def edit_product(product_id):
                     statuses=AVAILABLE_STATUSES,
                     suggested_slot=None,
                     warehouse_locked=warehouse_locked,
-                    is_edit=True
+                    is_edit=True,
+                    show_repair_expense_form=False,
+                    repair_form={'repair_amount': '', 'repair_comment': ''}
                 )
 
             if image_file and image_file.filename:
@@ -918,7 +1024,9 @@ def edit_product(product_id):
                         statuses=AVAILABLE_STATUSES,
                         suggested_slot=None,
                         warehouse_locked=warehouse_locked,
-                        is_edit=True
+                        is_edit=True,
+                        show_repair_expense_form=False,
+                        repair_form={'repair_amount': '', 'repair_comment': ''}
                     )
                 db_product.image_path = new_image_path
                 form_data['image_path'] = new_image_path
@@ -942,12 +1050,8 @@ def edit_product(product_id):
             db.session.commit()
 
             if old_status == 'В ремонте' and current_status != 'В ремонте':
-                flash('Укажите расход на ремонт товара', 'success')
-                return redirect(url_for(
-                    'finances',
-                    product_id=db_product.id,
-                    prefill_repair='1'
-                ))
+                flash('Карточка товара сохранена. Укажите расход на ремонт ниже.', 'success')
+                return redirect(url_for('edit_product', product_id=db_product.id, show_repair_expense=1))
 
             flash('Карточка товара успешно обновлена', 'success')
             return redirect(url_for('edit_product', product_id=db_product.id))
@@ -961,7 +1065,9 @@ def edit_product(product_id):
                 statuses=AVAILABLE_STATUSES,
                 suggested_slot=None,
                 warehouse_locked=warehouse_locked,
-                is_edit=True
+                is_edit=True,
+                show_repair_expense_form=False,
+                repair_form={'repair_amount': '', 'repair_comment': ''}
             )
 
     product_data = {
@@ -986,8 +1092,10 @@ def edit_product(product_id):
         statuses=AVAILABLE_STATUSES,
         suggested_slot=None,
         warehouse_locked=warehouse_locked,
-        is_edit=True
-    )
+        is_edit=True,
+        show_repair_expense_form=show_repair_expense_form,
+        repair_form={'repair_amount': '', 'repair_comment': ''}
+    )    
     
 @app.route('/advertisements')
 def advertisements():

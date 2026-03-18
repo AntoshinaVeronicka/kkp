@@ -179,7 +179,7 @@
             </button>
         {% endif %}
 
-        {% if product.current_status in ['Готов к продаже', 'Опубликован'] %}
+        {% if product.current_status in ['Опубликован'] %}
             <a href="{{ url_for('create_sale', product_id=product.id) }}" class="btn btn-warning">
                 Создать сделку
             </a>
@@ -193,7 +193,53 @@
     <a href="{{ url_for('products') }}" class="btn btn-secondary">Назад</a>
 </div>
 </form>
+{% if is_edit and show_repair_expense_form %}
+<hr class="my-4">
+<div class="card border-warning">
+    <div class="card-body">
+        <h4 class="mb-3">Добавление расхода на ремонт</h4>
+        <p class="text-muted">
+            Товар был переведен из статуса «В ремонте» в другой статус.
+            Укажите сумму расхода на ремонт, чтобы зафиксировать затраты.
+        </p>
 
+        <form method="POST">
+            <input type="hidden" name="action" value="save_repair_expense">
+
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Сумма расхода *</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        name="repair_amount"
+                        class="form-control no-spin"
+                        value="{{ repair_form.repair_amount }}"
+                        required
+                    >
+                </div>
+
+                <div class="col-md-9 mb-3">
+                    <label class="form-label">Комментарий</label>
+                    <input
+                        type="text"
+                        name="repair_comment"
+                        class="form-control"
+                        value="{{ repair_form.repair_comment }}"
+                        placeholder="Например: замена экрана, пайка платы, чистка и диагностика"
+                    >
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-warning">Сохранить расход на ремонт</button>
+                <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-outline-secondary">Пропустить</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% if is_edit and product.status_history %}
     <hr class="my-4">
     <h4>История статусов</h4>
